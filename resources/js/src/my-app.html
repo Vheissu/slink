@@ -1,0 +1,57 @@
+<template>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">SL</div>
+        <div>
+          <p class="brand-kicker">${appName}</p>
+          <p class="brand-title">Link control center</p>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <a class="nav-pill" href="/dashboard" load="dashboard">Dashboard</a>
+        <a class="nav-pill" href="/links" load="links">Links</a>
+        <a class="nav-pill" href="/analytics" load="analytics">Analytics</a>
+        <a class="nav-pill" href="/settings" load="settings">Settings</a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="info-card">
+          <p class="info-title">Ready to ship</p>
+          <p class="info-copy" if.bind="!hasToken">Connect your API token in Settings to sync live data.</p>
+          <p class="info-copy" if.bind="hasToken">Live data connected. You're ready to shorten links.</p>
+          <div class="info-row" if.bind="hasToken">
+            <span>Queue</span>
+            <span class.bind="queueStatusClass">${queueStatusLabel}</span>
+          </div>
+          <p class="text-xs text-slink-muted" if.bind="queueHealth">
+            Pending: ${queueHealth.pending ?? 0} · Failed: ${queueHealth.failed ?? 0}
+          </p>
+          <p class="text-xs text-rose-600" if.bind="queueError">${queueError}</p>
+          <button class="btn-chip mt-3" type="button" if.bind="hasToken" click.trigger="refreshQueueHealth()">
+            Refresh queue status
+          </button>
+        </div>
+        <p class="text-xs text-slink-muted">© ${year} Slink.</p>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="page-header">
+        <div>
+          <p class="eyebrow">Workspace</p>
+          <h1 class="page-title">Slink overview</h1>
+        </div>
+        <div class="header-actions">
+          <button class="btn-outline" type="button" click.trigger="requestImport()">Import CSV</button>
+          <button class="btn-primary" type="button" click.trigger="requestCreate()">Create short link</button>
+        </div>
+      </header>
+
+      <section class="page-body">
+        <au-viewport></au-viewport>
+      </section>
+    </main>
+  </div>
+</template>
