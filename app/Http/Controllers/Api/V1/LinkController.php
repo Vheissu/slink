@@ -7,11 +7,11 @@ use App\Models\Link;
 use App\Models\Tag;
 use App\Support\AuditLogger;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
-use Illuminate\Support\Carbon;
 
 class LinkController extends Controller
 {
@@ -27,12 +27,13 @@ class LinkController extends Controller
             $query->where(function ($builder) use ($search) {
                 if (filter_var($search, FILTER_VALIDATE_URL)) {
                     $builder->where('original_url', $search);
+
                     return;
                 }
 
-                $builder->where('slug', 'ilike', '%' . $search . '%')
-                    ->orWhere('original_url', 'ilike', '%' . $search . '%')
-                    ->orWhere('title', 'ilike', '%' . $search . '%');
+                $builder->where('slug', 'ilike', '%'.$search.'%')
+                    ->orWhere('original_url', 'ilike', '%'.$search.'%')
+                    ->orWhere('title', 'ilike', '%'.$search.'%');
             });
         }
 
@@ -47,7 +48,7 @@ class LinkController extends Controller
         if ($tag !== '') {
             $query->whereHas('tags', function ($builder) use ($tag) {
                 $builder->where('id', $tag)
-                    ->orWhere('name', 'ilike', '%' . $tag . '%');
+                    ->orWhere('name', 'ilike', '%'.$tag.'%');
             });
         }
 
@@ -84,7 +85,7 @@ class LinkController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'original_url' => ['required', 'url'],
+            'original_url' => ['required', 'url:http,https'],
             'title' => ['nullable', 'string', 'max:255'],
             'notes' => ['nullable', 'string', 'max:2000'],
             'password' => ['nullable', 'string', 'max:255'],
@@ -101,7 +102,7 @@ class LinkController extends Controller
 
         $link = Link::create($data);
 
-        if (!empty($data['tags'])) {
+        if (! empty($data['tags'])) {
             $tagIds = Tag::query()
                 ->where('user_id', $request->user()->id)
                 ->whereIn('id', $data['tags'])
@@ -109,6 +110,8 @@ class LinkController extends Controller
                 ->all();
             $link->tags()->sync($tagIds);
         }
+
+        $link->refresh();
 
         AuditLogger::log($request, 'link.created', Link::class, $link->id, [
             'title' => $link->title,
@@ -137,7 +140,7 @@ class LinkController extends Controller
             ->findOrFail($id);
 
         $data = $request->validate([
-            'original_url' => ['nullable', 'url'],
+            'original_url' => ['sometimes', 'required', 'url:http,https'],
             'title' => ['nullable', 'string', 'max:255'],
             'notes' => ['nullable', 'string', 'max:2000'],
             'password' => ['nullable', 'string', 'max:255'],
@@ -170,7 +173,7 @@ class LinkController extends Controller
             $changes['tags'] = $tagIds;
         }
 
-        if (!empty($changes)) {
+        if (! empty($changes)) {
             AuditLogger::log($request, 'link.updated', Link::class, $link->id, [
                 'changes' => $changes,
             ]);
@@ -240,7 +243,7 @@ class LinkController extends Controller
     {
         $data = $request->validate([
             'links' => ['required', 'array', 'min:1'],
-            'links.*.original_url' => ['required', 'url'],
+            'links.*.original_url' => ['required', 'url:http,https'],
             'links.*.title' => ['nullable', 'string', 'max:255'],
             'links.*.expires_at' => ['nullable', 'date'],
             'links.*.max_clicks' => ['nullable', 'integer', 'min:1'],
@@ -250,7 +253,7 @@ class LinkController extends Controller
         foreach ($data['links'] as $payload) {
             $payload['slug'] = $this->generateSlug();
             $payload['user_id'] = $request->user()->id;
-            $created[] = Link::create($payload);
+            $created[] = Link::create($payload)->refresh();
         }
 
         AuditLogger::log($request, 'link.bulk_created', Link::class, null, [
