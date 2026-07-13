@@ -1,15 +1,19 @@
 import QRCode from 'qrcode';
 import { ApiService, LinkDto, TagDto } from '../../services/api';
+import { AuthService } from '../../services/auth';
 import { UiActionsService, UiAction } from '../../services/ui-actions';
 
 type StatusFilter = 'all' | 'active' | 'inactive';
 
 export class LinksPage {
-  static inject = [ApiService, UiActionsService];
+  static inject = [ApiService, UiActionsService, AuthService];
   links: LinkDto[] = [];
   tags: TagDto[] = [];
   isLoading = true;
-  error = '';
+  hasToken = false;
+  loadError = '';
+  createError = '';
+  createdLink: LinkDto | null = null;
 
   newUrl = '';
   newTitle = '';
@@ -21,6 +25,13 @@ export class LinksPage {
   selectedTag = '';
   dateFrom = '';
   dateTo = '';
+  showDateFilters = false;
+  page = 1;
+  readonly perPage = 20;
+  lastPage = 1;
+  pageFrom: number | null = null;
+  pageTo: number | null = null;
+  total = 0;
 
   isImporting = false;
   importStatus = '';
@@ -33,7 +44,7 @@ export class LinksPage {
   copiedOriginal: string | null = null;
   private copyTimeout?: number;
 
-  selectedIds: string[] = []
+  selectedIds: string[] = [];
   bulkTagId = '';
   bulkActionStatus = '';
   bulkActionError = '';
@@ -48,15 +59,21 @@ export class LinksPage {
   editIsActive = true;
   editPassword = '';
   clearPassword = false;
-  editTagIds: string[] = []
+  editTagIds: string[] = [];
   qrDataUrl = '';
   isSavingDetails = false;
+  detailStatus = '';
+  detailError = '';
   newTagName = '';
-  newTagColor = '#0ea5e9';
+  newTagColor = '#c24718';
 
   private unsubscribe?: () => void;
 
-  constructor(private api: ApiService, private actions: UiActionsService) {}
+  constructor(
+    private api: ApiService,
+    private actions: UiActionsService,
+    private auth: AuthService,
+  ) {}
 
   get selectedCount() {
     return this.selectedIds.length;
@@ -66,51 +83,73 @@ export class LinksPage {
     return this.links.length > 0 && this.links.every((link) => this.selectedIds.includes(link.id));
   }
 
-  async attached() {
-    this.isLoading = true;
-    this.error = '';
-    try {
-      const [links, tags] = await Promise.all([this.api.listLinks(), this.api.listTags()]);
-      this.links = links;
-      this.tags = tags;
-    } catch (err) {
-      this.error = err instanceof Error ? err.message : 'Failed to load links';
-    } finally {
-      this.isLoading = false;
+  get pageSummary() {
+    if (!this.total || this.pageFrom === null || this.pageTo === null) {
+      return '0 links';
     }
+    return `${this.pageFrom}-${this.pageTo} of ${this.total} links`;
+  }
 
+  async attached() {
+    this.hasToken = this.auth.hasToken();
     this.unsubscribe = this.actions.onAction((action) => this.handleAction(action));
+    document.addEventListener('keydown', this.handleKeydown);
+
     const pending = this.actions.consume();
     if (pending) {
       this.handleAction(pending);
     }
-  }
 
-  detached() {
-    this.unsubscribe?.();
-  }
+    if (!this.hasToken) {
+      this.isLoading = false;
+      return;
+    }
 
-  async loadLinks() {
     this.isLoading = true;
-    this.error = '';
+    this.loadError = '';
     try {
-      this.links = await this.api.listLinks({
+      const [page, tags] = await Promise.all([this.api.listLinksPage(), this.api.listTags()]);
+      this.applyPage(page);
+      this.tags = tags;
+    } catch (err) {
+      this.loadError = err instanceof Error ? err.message : 'Failed to load links.';
+    } finally {
+      this.isLoading = false;
+    }
+  }
+
+  detaching() {
+    this.unsubscribe?.();
+    document.removeEventListener('keydown', this.handleKeydown);
+    document.body.classList.remove('drawer-open');
+    if (this.copyTimeout) {
+      window.clearTimeout(this.copyTimeout);
+    }
+  }
+
+  async loadLinks(page = this.page) {
+    this.isLoading = true;
+    this.loadError = '';
+    try {
+      const response = await this.api.listLinksPage({
         search: this.searchQuery.trim() || undefined,
         status: this.statusFilter,
         tag: this.selectedTag || undefined,
         from: this.dateFrom || undefined,
         to: this.dateTo || undefined,
+        page,
       });
+      this.applyPage(response);
       this.selectedIds = [];
     } catch (err) {
-      this.error = err instanceof Error ? err.message : 'Failed to load links';
+      this.loadError = err instanceof Error ? err.message : 'Failed to load links.';
     } finally {
       this.isLoading = false;
     }
   }
 
   async applyFilters() {
-    await this.loadLinks();
+    await this.loadLinks(1);
   }
 
   async clearFilters() {
@@ -119,7 +158,8 @@ export class LinksPage {
     this.selectedTag = '';
     this.dateFrom = '';
     this.dateTo = '';
-    await this.loadLinks();
+    this.showDateFilters = false;
+    await this.loadLinks(1);
   }
 
   setStatusFilter(status: StatusFilter) {
@@ -127,25 +167,29 @@ export class LinksPage {
   }
 
   async createLink() {
-    if (!this.newUrl) {
-      this.error = 'Destination URL is required.';
-      return;
-    }
-
     this.isSaving = true;
-    this.error = '';
+    this.createError = '';
+    this.createdLink = null;
     try {
+      const originalUrl = this.normalizeUrl(this.newUrl);
       const created = await this.api.createLink({
-        original_url: this.newUrl,
+        original_url: originalUrl,
         title: this.newTitle || null,
         password: this.newPassword || null,
       });
-      this.links = [created, ...this.links];
+      this.createdLink = created;
+      this.total += 1;
+      this.lastPage = Math.max(1, Math.ceil(this.total / this.perPage));
+      if (this.page === 1) {
+        this.links = [created, ...this.links].slice(0, this.perPage);
+        this.pageFrom = 1;
+        this.pageTo = this.links.length;
+      }
       this.newUrl = '';
       this.newTitle = '';
       this.newPassword = '';
     } catch (err) {
-      this.error = err instanceof Error ? err.message : 'Failed to create link';
+      this.createError = err instanceof Error ? err.message : 'Failed to create link.';
     } finally {
       this.isSaving = false;
     }
@@ -229,7 +273,7 @@ export class LinksPage {
 
   toggleSelected(id: string) {
     if (this.selectedIds.includes(id)) {
-      this.selectedIds = this.selectedIds.filter((item) => item != id);
+      this.selectedIds = this.selectedIds.filter((item) => item !== id);
     } else {
       this.selectedIds = [...this.selectedIds, id];
     }
@@ -270,7 +314,13 @@ export class LinksPage {
 
       const response = await this.api.bulkCreateLinks(payloads);
       const created = response.data ?? [];
-      this.links = [...created, ...this.links];
+      this.total += created.length;
+      this.lastPage = Math.max(1, Math.ceil(this.total / this.perPage));
+      if (this.page === 1) {
+        this.links = [...created, ...this.links].slice(0, this.perPage);
+        this.pageFrom = this.links.length ? 1 : null;
+        this.pageTo = this.links.length || null;
+      }
       this.importStatus = `Imported ${created.length} links${skipped ? `, skipped ${skipped}` : ''}.`;
     } catch (err) {
       this.importError = err instanceof Error ? err.message : 'Failed to import CSV.';
@@ -338,6 +388,7 @@ export class LinksPage {
   openDetails(link: LinkDto) {
     this.activeLink = link;
     this.isDrawerOpen = true;
+    document.body.classList.add('drawer-open');
     this.editTitle = link.title ?? '';
     this.editOriginalUrl = link.original_url ?? '';
     this.editNotes = link.notes ?? '';
@@ -348,6 +399,8 @@ export class LinksPage {
     this.editPassword = '';
     this.clearPassword = false;
     this.qrDataUrl = '';
+    this.detailStatus = '';
+    this.detailError = '';
     if (link.slug) {
       this.generateQr(link.slug);
     }
@@ -355,13 +408,14 @@ export class LinksPage {
 
   closeDetails() {
     this.isDrawerOpen = false;
+    document.body.classList.remove('drawer-open');
     this.activeLink = null;
     this.qrDataUrl = '';
   }
 
   toggleTag(tagId: string) {
     if (this.editTagIds.includes(tagId)) {
-      this.editTagIds = this.editTagIds.filter((id) => id != tagId);
+      this.editTagIds = this.editTagIds.filter((id) => id !== tagId);
       return;
     }
     this.editTagIds = [...this.editTagIds, tagId];
@@ -376,9 +430,9 @@ export class LinksPage {
       const created = await this.api.createTag({ name, color: this.newTagColor || null });
       this.tags = [created, ...this.tags];
       this.newTagName = '';
-      this.newTagColor = '#0ea5e9';
+      this.newTagColor = '#c24718';
     } catch (err) {
-      this.bulkActionError = err instanceof Error ? err.message : 'Failed to create tag.';
+      this.detailError = err instanceof Error ? err.message : 'Failed to create tag.';
     }
   }
 
@@ -388,8 +442,10 @@ export class LinksPage {
     }
 
     this.isSavingDetails = true;
-    this.bulkActionError = '';
+    this.detailError = '';
+    this.detailStatus = '';
     try {
+      const originalUrl = this.normalizeUrl(this.editOriginalUrl);
       const payload: {
         title?: string | null;
         original_url?: string | null;
@@ -401,7 +457,7 @@ export class LinksPage {
         password?: string | null;
       } = {
         title: this.editTitle || null,
-        original_url: this.editOriginalUrl || null,
+        original_url: originalUrl,
         notes: this.editNotes || null,
         expires_at: this.editExpiresAt || null,
         max_clicks: this.editMaxClicks ? Number(this.editMaxClicks) : null,
@@ -420,8 +476,9 @@ export class LinksPage {
       this.activeLink = updated;
       this.editPassword = '';
       this.clearPassword = false;
+      this.detailStatus = 'Changes saved.';
     } catch (err) {
-      this.bulkActionError = err instanceof Error ? err.message : 'Failed to save changes.';
+      this.detailError = err instanceof Error ? err.message : 'Failed to save changes.';
     } finally {
       this.isSavingDetails = false;
     }
@@ -456,6 +513,61 @@ export class LinksPage {
     if (action === 'import') {
       this.triggerCsvImport();
     }
+  }
+
+  async goToPage(page: number) {
+    if (page < 1 || page > this.lastPage || page === this.page) {
+      return;
+    }
+    await this.loadLinks(page);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  linkStatusClass(link: LinkDto) {
+    return link.is_active ? 'status-pill' : 'status-pill status-pill--neutral';
+  }
+
+  private applyPage(response: {
+    data: LinkDto[];
+    current_page: number;
+    last_page: number;
+    from: number | null;
+    to: number | null;
+    total: number;
+  }) {
+    this.links = response.data;
+    this.page = response.current_page;
+    this.lastPage = response.last_page;
+    this.pageFrom = response.from;
+    this.pageTo = response.to;
+    this.total = response.total;
+  }
+
+  private handleKeydown = (event: KeyboardEvent) => {
+    if (event.key === 'Escape' && this.isDrawerOpen) {
+      this.closeDetails();
+    }
+  };
+
+  private normalizeUrl(value: string) {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      throw new Error('Destination URL is required.');
+    }
+
+    const candidate = /^[a-z][a-z\d+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+    let url: URL;
+    try {
+      url = new URL(candidate);
+    } catch {
+      throw new Error('Enter a valid destination URL.');
+    }
+
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      throw new Error('Only HTTP and HTTPS destinations are supported.');
+    }
+
+    return url.toString();
   }
 
   private focusCreate() {

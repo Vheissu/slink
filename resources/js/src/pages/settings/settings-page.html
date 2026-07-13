@@ -1,43 +1,96 @@
-<template>
-  <div class="space-y-8">
+<div class="page-stack">
+  <header class="page-heading">
+    <div>
+      <h1>Settings</h1>
+      <p class="page-description">API access and recent account activity.</p>
+    </div>
+  </header>
+
+  <div class="settings-grid">
     <section class="panel">
-      <p class="text-xs uppercase tracking-[0.3em] text-slink-muted">Settings</p>
-      <h2 class="font-display text-2xl">Connect your API token</h2>
-      <form class="mt-6 grid gap-4 md:grid-cols-[2fr,auto]" submit.trigger="saveToken()">
-        <div class="input-shell">
-          <label class="text-xs uppercase tracking-[0.3em] text-slink-muted">Bearer token</label>
-          <input class="input-field" placeholder="Paste your API token" value.bind="tokenInput" />
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">API token</h2>
+          <p class="section-copy">The frontend sends this bearer token with requests to /api/v1.</p>
         </div>
-        <div class="flex items-end">
-          <button class="btn-primary w-full" type="submit">Save</button>
-        </div>
-      </form>
-      <p class="mt-3 text-sm text-slink-muted" if.bind="status">${status}</p>
-    </section>
-
-    <section class="panel">
-      <p class="text-xs uppercase tracking-[0.3em] text-slink-muted">Governance</p>
-      <h2 class="font-display text-2xl">Recent audit activity</h2>
-      <p class="mt-2 text-sm text-slink-muted">Track sensitive changes made via the API.</p>
-
-      <p class="mt-4 text-sm text-slink-muted" if.bind="isLoadingAudit">Loading audit log...</p>
-      <p class="mt-4 text-sm text-rose-600" if.bind="auditError">${auditError}</p>
-
-      <div class="mt-4 space-y-3" if.bind="!isLoadingAudit && !auditError && auditLogs.length">
-        <div class="panel-sub" repeat.for="entry of auditLogs">
-          <div class="flex items-center justify-between gap-4">
-            <p class="text-sm font-medium">${formatAction(entry.action)}</p>
-            <p class="text-xs text-slink-muted">${formatTimestamp(entry.created_at)}</p>
-          </div>
-          <p class="mt-2 text-xs text-slink-muted" if.bind="entry.subject_type">
-            ${entry.subject_type} · ${entry.subject_id}
-          </p>
-        </div>
+        <span class="status-pill" if.bind="hasToken">Connected</span>
+        <span class="status-pill status-pill--neutral" if.bind="!hasToken">Not connected</span>
       </div>
 
-      <p class="mt-4 text-sm text-slink-muted" if.bind="!isLoadingAudit && !auditError && !auditLogs.length">
-        No activity yet. Once you start creating or updating links, entries will appear here.
-      </p>
+      <form class="mt-5" submit.trigger:prevent="saveToken()">
+        <div class="input-shell">
+          <label for="api-token">Bearer token</label>
+          <div class="token-field">
+            <input
+              id="api-token"
+              class="input-field font-mono"
+              type.bind="showToken ? 'text' : 'password'"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Paste a token"
+              value.bind="tokenInput"
+              aria-describedby="token-storage-note"
+            />
+            <button class="btn-secondary" type="button" click.trigger="toggleTokenVisibility()">
+              ${showToken ? 'Hide' : 'Show'}
+            </button>
+          </div>
+          <p class="field-help" id="token-storage-note">
+            Stored in this browser's local storage. It is only sent to this Slink server.
+          </p>
+        </div>
+
+        <div class="button-row mt-4">
+          <button class="btn-primary" type="submit">Save token</button>
+          <button class="btn-secondary" type="button" if.bind="hasToken" click.trigger="clearToken()">Clear token</button>
+        </div>
+        <p class="form-success mt-3" aria-live="polite" if.bind="status">${status}</p>
+      </form>
     </section>
+
+    <aside class="panel">
+      <h2 class="section-title">Token permissions</h2>
+      <p class="section-copy">
+        Each screen needs matching abilities. Links use links:read and links:write. Analytics uses analytics:read.
+      </p>
+      <p class="section-copy">
+        A full-access token can use *. Use a narrower token when this browser only needs part of the app.
+      </p>
+    </aside>
   </div>
-</template>
+
+  <section class="panel">
+    <div class="section-header">
+      <div>
+        <h2 class="section-title">Recent activity</h2>
+        <p class="section-copy">Link, tag, and token changes recorded by the API.</p>
+      </div>
+      <button class="btn-secondary" type="button" if.bind="hasToken" click.trigger="loadAuditLogs()" disabled.bind="isLoadingAudit">
+        Refresh
+      </button>
+    </div>
+
+    <div class="notice notice--error" role="alert" if.bind="auditError">${auditError}</div>
+
+    <div class="audit-list" if.bind="isLoadingAudit" aria-hidden="true">
+      <div class="skeleton-row" repeat.for="item of [1, 2, 3, 4, 5]"></div>
+    </div>
+
+    <div class="audit-list" if.bind="!isLoadingAudit && !auditError && auditLogs.length">
+      <article class="audit-row" repeat.for="entry of auditLogs" key="id">
+        <div class="audit-main">
+          <p class="audit-title">${formatAction(entry.action)}</p>
+          <span class="audit-meta font-mono" if.bind="entry.subject_type || entry.subject_id">
+            ${formatSubject(entry.subject_type, entry.subject_id)}
+          </span>
+        </div>
+        <time class="text-xs text-slink-muted" datetime.bind="entry.created_at">${formatTimestamp(entry.created_at)}</time>
+      </article>
+    </div>
+
+    <div class="empty-state" if.bind="!isLoadingAudit && !auditError && !auditLogs.length">
+      <h3>${hasToken ? 'No activity yet' : 'Connect an API token'}</h3>
+      <p>${hasToken ? 'Changes will appear here as you work.' : 'Audit history needs audit:read access.'}</p>
+    </div>
+  </section>
+</div>

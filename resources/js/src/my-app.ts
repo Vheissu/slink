@@ -1,20 +1,18 @@
-import { DashboardPage } from './pages/dashboard/dashboard-page';
-import { LinksPage } from './pages/links/links-page';
-import { AnalyticsPage } from './pages/analytics/analytics-page';
-import { SettingsPage } from './pages/settings/settings-page';
-import { IRouter } from '@aurelia/router';
+import { ICurrentRoute, IRouter, route } from '@aurelia/router';
 import { UiActionsService } from './services/ui-actions';
 import { AuthService } from './services/auth';
 import { ApiService, QueueHealthDto } from './services/api';
 
+@route({
+  routes: [
+    { path: ['', 'dashboard'], component: import('./pages/dashboard/dashboard-page'), title: 'Dashboard' },
+    { path: 'links', component: import('./pages/links/links-page'), title: 'Links' },
+    { path: 'analytics', component: import('./pages/analytics/analytics-page'), title: 'Analytics' },
+    { path: 'settings', component: import('./pages/settings/settings-page'), title: 'Settings' },
+  ],
+})
 export class MyApp {
-  static inject = [IRouter, UiActionsService, AuthService, ApiService];
-  static routes = [
-    { path: ['', 'dashboard'], component: DashboardPage, title: 'Dashboard' },
-    { path: 'links', component: LinksPage, title: 'Links' },
-    { path: 'analytics', component: AnalyticsPage, title: 'Analytics' },
-    { path: 'settings', component: SettingsPage, title: 'Settings' },
-  ];
+  static inject = [IRouter, ICurrentRoute, UiActionsService, AuthService, ApiService];
 
   appName = 'Slink';
   year = new Date().getFullYear();
@@ -24,6 +22,7 @@ export class MyApp {
 
   constructor(
     private router: IRouter,
+    public currentRoute: ICurrentRoute,
     private actions: UiActionsService,
     private auth: AuthService,
     private api: ApiService
@@ -37,7 +36,7 @@ export class MyApp {
     }
   }
 
-  detached() {
+  detaching() {
     window.removeEventListener('slink:token', this.onTokenEvent);
   }
 
@@ -106,5 +105,16 @@ export class MyApp {
       return 'status-pill status-pill--error';
     }
     return 'status-pill status-pill--neutral';
+  }
+
+  get connectionLabel() {
+    return this.hasToken ? 'API connected' : 'API setup required';
+  }
+
+  isRouteActive(path: string) {
+    const currentPath = this.currentRoute.path || window.location.pathname.replace(/^\//, '');
+    return path === 'dashboard'
+      ? currentPath === '' || currentPath === 'dashboard'
+      : currentPath === path;
   }
 }

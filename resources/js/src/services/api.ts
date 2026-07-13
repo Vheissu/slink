@@ -84,6 +84,33 @@ export interface AnalyticsResponseDto {
   stats: LinkStatsDto;
 }
 
+export interface LinkListParams {
+  search?: string;
+  status?: 'active' | 'inactive' | 'all';
+  tag?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+  per_page?: number;
+}
+
+export interface LinkPageDto {
+  data: LinkDto[];
+  current_page: number;
+  from: number | null;
+  last_page: number;
+  per_page: number;
+  to: number | null;
+  total: number;
+}
+
+export class ApiError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
 export class ApiService {
   static inject = [IHttpClient];
   private token: string | null = null;
@@ -108,13 +135,12 @@ export class ApiService {
     this.token = token;
   }
 
-  async listLinks(params?: {
-    search?: string;
-    status?: 'active' | 'inactive' | 'all';
-    tag?: string;
-    from?: string;
-    to?: string;
-  }): Promise<LinkDto[]> {
+  async listLinks(params?: LinkListParams): Promise<LinkDto[]> {
+    const page = await this.listLinksPage(params);
+    return page.data;
+  }
+
+  async listLinksPage(params?: LinkListParams): Promise<LinkPageDto> {
     const searchParams = new URLSearchParams();
     if (params?.search) {
       searchParams.set('search', params.search);
@@ -131,11 +157,16 @@ export class ApiService {
     if (params?.to) {
       searchParams.set('to', params.to);
     }
+    if (params?.page) {
+      searchParams.set('page', String(params.page));
+    }
+    if (params?.per_page) {
+      searchParams.set('per_page', String(params.per_page));
+    }
     const url = searchParams.toString() ? `links?${searchParams.toString()}` : 'links';
     const response = await this.http.fetch(url);
     await this.ensureOk(response);
-    const payload = await response.json();
-    return payload.data ?? payload;
+    return response.json();
   }
 
   async getUserStats(): Promise<UserStatsDto> {
@@ -175,7 +206,7 @@ export class ApiService {
     return response.json();
   }
 
-  async createLink(payload: { original_url: string; title?: string | null; password?: string | null }) {
+  async createLink(payload: { original_url: string; title?: string | null; password?: string | null }): Promise<LinkDto> {
     const response = await this.http.fetch('links', {
       method: 'POST',
       headers: {
@@ -199,7 +230,7 @@ export class ApiService {
       is_active?: boolean;
       tags?: string[];
     },
-  ) {
+  ): Promise<LinkDto> {
     const response = await this.http.fetch(`links/${linkId}`, {
       method: 'PATCH',
       headers: {
@@ -211,7 +242,7 @@ export class ApiService {
     return response.json();
   }
 
-  async bulkActionLinks(payload: { action: string; ids: string[]; tag_id?: string }) {
+  async bulkActionLinks(payload: { action: string; ids: string[]; tag_id?: string }): Promise<{ affected?: number }> {
     const response = await this.http.fetch('links/actions', {
       method: 'POST',
       headers: {
@@ -231,7 +262,7 @@ export class ApiService {
       expires_at?: string | null;
       max_clicks?: number | null;
     }>,
-  ) {
+  ): Promise<{ data: LinkDto[] }> {
     const response = await this.http.fetch('links/bulk', {
       method: 'POST',
       headers: {
@@ -256,7 +287,7 @@ export class ApiService {
     return payload.data ?? payload;
   }
 
-  async createTag(payload: { name: string; color?: string | null }) {
+  async createTag(payload: { name: string; color?: string | null }): Promise<TagDto> {
     const response = await this.http.fetch('tags', {
       method: 'POST',
       headers: {
@@ -311,7 +342,32 @@ export class ApiService {
   private async ensureOk(response: Response) {
     if (!response.ok) {
       const body = await response.text();
-      throw new Error(body || `Request failed (${response.status})`);
+      let message = body || `Request failed (${response.status})`;
+
+      if (body) {
+        try {
+          const payload = JSON.parse(body) as {
+            message?: string;
+            errors?: Record<string, string[]>;
+          };
+          const validationMessage = payload.errors
+            ? Object.values(payload.errors).flat().find(Boolean)
+            : null;
+          message = validationMessage || payload.message || message;
+        } catch {
+          // Keep the plain-text response.
+        }
+      }
+
+      if (response.status === 401) {
+        message = message.toLowerCase().includes('expired')
+          ? 'This API token has expired. Add a new token in Settings.'
+          : 'This API token is missing or invalid. Check it in Settings.';
+      } else if (response.status === 403) {
+        message = 'This API token does not have permission for that action.';
+      }
+
+      throw new ApiError(response.status, message);
     }
   }
 }

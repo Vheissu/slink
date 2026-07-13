@@ -1,6 +1,6 @@
 # Slink
 
-Slink is a self-hosted URL shortening platform built with Laravel 12, PostgreSQL, Redis, and an Aurelia 2 frontend. It provides a modern dashboard for creating short links, organizing them, and reviewing performance data.
+Slink is a self-hosted URL shortener built with Laravel 12, PostgreSQL, Redis, and Aurelia 2. It creates short links, groups them with tags, and records enough click data to show what is being used.
 
 ## Features
 
@@ -15,7 +15,7 @@ Slink is a self-hosted URL shortening platform built with Laravel 12, PostgreSQL
 - Queue health indicator and link health checks
 - API-first design with Bearer token authentication
 - Token scopes (abilities) and audit logging
-- Clean, modern Aurelia 2 SPA UI
+- Responsive workspace for desktop and mobile
 
 Planned/extended features live in `technical-spec.md`.
 
@@ -53,29 +53,29 @@ docker compose exec -T app php artisan migrate
 
 ## API overview
 
-All API routes are prefixed with `/api/v1` and require a Bearer token unless noted.
+All API routes are prefixed with `/api/v1` and require a Bearer token unless noted. Link destinations must use HTTP or HTTPS.
 
-- `GET /api/v1/links` — List links
-- `POST /api/v1/links` — Create link (slug is auto-generated)
-- `POST /api/v1/links/bulk` — Bulk create links
-- `POST /api/v1/links/actions` — Bulk actions (activate/deactivate/delete/tag/untag)
-- `GET /api/v1/analytics?query=&from=&to=&include_bots=1` — Analytics with filters and time range
-- `GET /api/v1/links/{id}/stats` — Link analytics
-- `GET /api/v1/audit-logs` — Recent audit activity
-- `GET /api/v1/user/stats` — Account stats
-- `POST /api/v1/user/tokens` — Create API token
-- `DELETE /api/v1/user/tokens/{id}` — Revoke API token
-- `GET /{slug}` — Redirect (public)
-- `POST /{slug}/verify` — Verify password-protected link (public)
+- `GET /api/v1/links`: List links
+- `POST /api/v1/links`: Create link (slug is auto-generated)
+- `POST /api/v1/links/bulk`: Bulk create links
+- `POST /api/v1/links/actions`: Bulk actions (activate/deactivate/delete/tag/untag)
+- `GET /api/v1/analytics?query=&from=&to=&include_bots=1`: Analytics with filters and time range
+- `GET /api/v1/links/{id}/stats`: Link analytics
+- `GET /api/v1/audit-logs`: Recent audit activity
+- `GET /api/v1/user/stats`: Account stats
+- `POST /api/v1/user/tokens`: Create API token
+- `DELETE /api/v1/user/tokens/{id}`: Revoke API token
+- `GET /{slug}`: Redirect (public)
+- `POST /{slug}/verify`: Verify password-protected link (public)
 
 ## CSV import format
 
 CSV headers are optional. Supported columns:
 
-- `original_url` (or `url` / `link`) — required
-- `title` — optional
-- `expires_at` — optional
-- `max_clicks` — optional
+- `original_url` (or `url` / `link`): required
+- `title`: optional
+- `expires_at`: optional
+- `max_clicks`: optional
 
 Example:
 
@@ -144,17 +144,22 @@ Serve the backend via your preferred web server or `php artisan serve`. Ensure `
 
 ## Project structure
 
-- `app/` — Laravel backend
-- `routes/` — API and web routing
-- `resources/js/src/` — Aurelia 2 SPA
-- `resources/css/` — Tailwind CSS
-- `docker/` — Nginx and container config
+- `app/`: Laravel backend
+- `routes/`: API and web routing
+- `resources/js/src/`: Aurelia 2 SPA
+- `resources/css/`: Tailwind CSS
+- `docker/`: Nginx and container config
 
 ## Scripts
 
 ```bash
 npm run dev
+npm run typecheck
 npm run build
+composer test
+vendor/bin/pint --test
+npm audit
+composer audit
 ```
 
 ## Health checks

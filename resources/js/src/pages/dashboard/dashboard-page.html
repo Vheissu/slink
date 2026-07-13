@@ -1,59 +1,78 @@
-<template>
-  <div class="space-y-8">
-    <section class="grid gap-4 md:grid-cols-3">
-      <div class="metric-card" repeat.for="metric of metrics">
-        <p class="text-xs uppercase tracking-[0.3em] text-slink-muted">${metric.label}</p>
-        <div class="mt-3 flex items-end justify-between">
-          <p class="font-display text-3xl">${metric.value}</p>
+<div class="page-stack">
+  <header class="page-heading">
+    <div>
+      <h1>Dashboard</h1>
+      <p class="page-description">A quick read on your links and clicks.</p>
+    </div>
+  </header>
+
+  <section class="setup-state" if.bind="!hasToken">
+    <div>
+      <h2>Connect this Slink server</h2>
+      <p>Add a bearer token before loading links or analytics.</p>
+      <a class="btn-primary" href="/settings" load="../settings">Open settings</a>
+    </div>
+  </section>
+
+  <template if.bind="hasToken">
+    <section class="metric-grid" aria-label="Link totals" aria-busy.bind="isLoading">
+      <template if.bind="isLoading">
+        <div class="metric-card" repeat.for="item of [1, 2, 3, 4]">
+          <div class="skeleton skeleton-line"></div>
+          <div class="skeleton skeleton-value"></div>
         </div>
-      </div>
+      </template>
+      <template if.bind="!isLoading">
+        <article class="metric-card" repeat.for="metric of metrics">
+          <p class="metric-label">${metric.label}</p>
+          <p class="metric-value">${metric.value}</p>
+          <p class="metric-help">${metric.help}</p>
+        </article>
+      </template>
     </section>
 
     <section class="panel">
-      <div class="flex items-center justify-between">
+      <div class="panel-header">
         <div>
-          <p class="text-xs uppercase tracking-[0.3em] text-slink-muted">Live links</p>
-          <h2 class="font-display text-2xl">Recent destinations</h2>
+          <h2 class="panel-title">Recent links</h2>
+          <p class="panel-copy">The four most recently created destinations.</p>
         </div>
-        <span class="text-xs text-slink-muted" if.bind="isLoading">Loading...</span>
+        <a class="btn-secondary" href="/links" load="../links">View all links</a>
       </div>
 
-      <div class="mt-6 space-y-4" if.bind="error">
-        <div class="status-pill status-pill--error">${error}</div>
+      <div class="notice notice--error" role="alert" if.bind="error">${error}</div>
+
+      <div class="recent-list" if.bind="isLoading" aria-hidden="true">
+        <div class="skeleton-row" repeat.for="item of [1, 2, 3, 4]"></div>
       </div>
 
-      <div class="mt-6 space-y-4" if.bind="!isLoading && !error && recentLinks.length">
-        <div class="link-row" repeat.for="link of recentLinks">
-          <div>
-            <p class="font-medium">${link.title ?? 'Untitled'}</p>
-            <p class="text-xs font-mono text-slink-muted">${link.original_url}</p>
+      <div class="recent-list" if.bind="!isLoading && !error && recentLinks.length">
+        <article class="recent-row" repeat.for="link of recentLinks" key="id">
+          <div class="recent-main">
+            <p class="recent-title">${link.title ?? 'Untitled link'}</p>
+            <span class="recent-url font-mono">${link.original_url}</span>
+          </div>
+          <div class="button-row">
+            <span class.bind="statusClass(link)">${link.is_active ? 'Active' : 'Inactive'}</span>
+            <button class="btn-chip" type="button" click.trigger="copyLink(link.slug)">
+              ${copiedSlug === link.slug ? 'Copied' : 'Copy'}
+            </button>
             <a
-              class="text-xs font-mono text-slink-muted underline"
+              class="btn-chip"
               href.bind="shortUrl(link.slug)"
-              if.bind="link.slug"
               target="_blank"
               rel="noreferrer"
             >
-              ${shortUrl(link.slug)}
+              Open
             </a>
           </div>
-          <div class="flex items-center gap-6">
-            <button
-              class="btn-chip"
-              type="button"
-              click.trigger="copyLink(link.slug)"
-              if.bind="link.slug"
-            >
-              ${copiedSlug === link.slug ? 'Copied' : 'Copy'}
-            </button>
-            <span class="status-pill">${link.is_active ? 'Active' : 'Inactive'}</span>
-          </div>
-        </div>
+        </article>
       </div>
 
       <div class="empty-state" if.bind="!isLoading && !error && !recentLinks.length">
-        <p>No links yet. Create your first short link to see activity here.</p>
+        <h3>No links yet</h3>
+        <p>Create a short link and it will appear here.</p>
       </div>
     </section>
-  </div>
-</template>
+  </template>
+</div>

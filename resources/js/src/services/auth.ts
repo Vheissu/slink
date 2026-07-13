@@ -1,6 +1,10 @@
 const TOKEN_KEY = 'slink_token';
 
 export class AuthService {
+  hasToken(): boolean {
+    return Boolean(this.getToken());
+  }
+
   getToken(): string | null {
     return localStorage.getItem(TOKEN_KEY);
   }

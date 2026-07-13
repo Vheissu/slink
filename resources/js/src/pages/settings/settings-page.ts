@@ -8,20 +8,33 @@ export class SettingsPage {
   auditLogs: AuditLogDto[] = [];
   auditError = '';
   isLoadingAudit = false;
+  hasToken = false;
+  showToken = false;
 
   constructor(private auth: AuthService, private api: ApiService) {}
 
   async attached() {
     this.tokenInput = this.auth.getToken() ?? '';
+    this.hasToken = this.auth.hasToken();
     await this.loadAuditLogs();
   }
 
-  saveToken() {
+  async saveToken() {
     this.auth.setToken(this.tokenInput.trim() || null);
     this.api.setToken(this.auth.getToken());
-    this.status = this.tokenInput.trim() ? 'Token saved.' : 'Token cleared.';
-    this.dispatchTokenState(Boolean(this.auth.getToken()));
-    this.loadAuditLogs();
+    this.hasToken = this.auth.hasToken();
+    this.status = this.hasToken ? 'Token saved in this browser.' : 'Token cleared.';
+    this.dispatchTokenState(this.hasToken);
+    await this.loadAuditLogs();
+  }
+
+  async clearToken() {
+    this.tokenInput = '';
+    await this.saveToken();
+  }
+
+  toggleTokenVisibility() {
+    this.showToken = !this.showToken;
   }
 
   private dispatchTokenState(hasToken: boolean) {
@@ -50,7 +63,15 @@ export class SettingsPage {
       .split('.')
       .map((part) => part.replace(/_/g, ' '))
       .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(' · ');
+      .join(' ');
+  }
+
+  formatSubject(subjectType: string | null, subjectId: string | null) {
+    if (!subjectType) {
+      return subjectId ?? '';
+    }
+    const subject = subjectType.split('\\').pop() ?? subjectType;
+    return subjectId ? `${subject} ${subjectId}` : subject;
   }
 
   formatTimestamp(value: string) {

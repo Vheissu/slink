@@ -4,13 +4,13 @@ import { MyApp } from './my-app';
 import { ApiService } from './services/api';
 import { AuthService } from './services/auth';
 
-const host = document.querySelector('#app');
+const host = document.querySelector<HTMLElement>('#app');
 if (!host) {
   throw new Error('Aurelia host element not found');
 }
 
 const au = Aurelia
-  .register(RouterConfiguration.customize({ useUrlFragmentHash: false }))
+  .register(RouterConfiguration.customize({ useUrlFragmentHash: false, useHref: false }))
   .app({ component: MyApp, host });
 
 const auth = au.container.get(AuthService);

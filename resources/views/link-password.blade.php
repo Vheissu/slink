@@ -3,44 +3,50 @@
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>{{ $title ?? config('app.name', 'Slink') }} · Protected</title>
+        <meta name="description" content="Enter the password to continue to this protected Slink destination.">
+        <title>{{ $title ?? config('app.name', 'Slink') }} - Protected</title>
 
         <link rel="preconnect" href="https://fonts.bunny.net">
-        <link href="https://fonts.bunny.net/css?family=sora:300,400,500,600,700&family=manrope:400,500,600,700&family=jetbrains-mono:400,500,600" rel="stylesheet" />
+        <link href="https://fonts.bunny.net/css?family=hanken-grotesk:400,500,600,700,800&family=jetbrains-mono:400,500,600" rel="stylesheet" />
 
         @vite(['resources/css/app.css'])
     </head>
     <body class="antialiased">
-        <div class="min-h-screen px-6 py-16">
-            <div class="mx-auto max-w-lg">
-                <div class="panel">
-                    <p class="text-xs uppercase tracking-[0.3em] text-slink-muted">Protected link</p>
-                    <h1 class="mt-2 font-display text-2xl">{{ $title ?? 'This link' }} requires a password</h1>
-                    <p class="mt-2 text-sm text-slink-muted">
-                        Enter the password to continue to the destination.
-                    </p>
+        <main class="standalone-page">
+            <section class="protected-card">
+                <a class="brand protected-brand" href="/">
+                    <span class="brand-mark" aria-hidden="true">SL</span>
+                    <strong class="brand-name">Slink</strong>
+                </a>
 
-                    <form class="mt-6 space-y-4" method="POST" action="{{ url('/' . $slug . '/verify') }}">
+                <div class="protected-content">
+                    <p class="protected-label">Password required</p>
+                    <h1>{{ $title ?? 'This link' }} is protected</h1>
+                    <p>Enter the password to continue to the destination.</p>
+
+                    <form class="protected-form" method="POST" action="{{ url('/' . $slug . '/verify') }}">
                         @csrf
                         <div class="input-shell">
-                            <label class="text-xs uppercase tracking-[0.3em] text-slink-muted">Password</label>
+                            <label for="link-password">Password</label>
                             <input
+                                id="link-password"
                                 class="input-field"
                                 type="password"
                                 name="password"
                                 autocomplete="current-password"
+                                autofocus
                                 required
                             />
                         </div>
 
                         @if (!empty($error))
-                            <p class="text-sm text-rose-600">{{ $error }}</p>
+                            <p class="form-error" role="alert">{{ $error }}</p>
                         @endif
 
-                        <button class="btn-primary w-full" type="submit">Unlock link</button>
+                        <button class="btn-primary" type="submit">Continue</button>
                     </form>
                 </div>
-            </div>
-        </div>
+            </section>
+        </main>
     </body>
 </html>

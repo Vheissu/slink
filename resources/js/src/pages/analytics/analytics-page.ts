@@ -1,12 +1,13 @@
 import { Chart, registerables } from 'chart.js';
 import { ApiService, AnalyticsResponseDto, AnalyticsSeriesPoint, LinkStatsDto } from '../../services/api';
+import { AuthService } from '../../services/auth';
 
 Chart.register(...registerables);
 
 type QuickRange = '24h' | '7d' | '30d' | '90d';
 
 export class AnalyticsPage {
-  static inject = [ApiService];
+  static inject = [ApiService, AuthService];
   queryInput = '';
   fromDate = '';
   toDate = '';
@@ -17,17 +18,24 @@ export class AnalyticsPage {
   series: AnalyticsSeriesPoint[] = [];
   isLoading = true;
   error = '';
+  hasToken = false;
+  activeRange: QuickRange | null = '30d';
   chartCanvas?: HTMLCanvasElement;
   chart?: Chart;
 
-  constructor(private api: ApiService) {}
+  constructor(private api: ApiService, private auth: AuthService) {}
 
-  attached() {
+  async attached() {
+    this.hasToken = this.auth.hasToken();
+    if (!this.hasToken) {
+      this.isLoading = false;
+      return;
+    }
     this.applyQuickRange('30d');
-    this.fetchStats();
+    await this.fetchStats();
   }
 
-  detached() {
+  detaching() {
     this.chart?.destroy();
   }
 
@@ -69,6 +77,7 @@ export class AnalyticsPage {
   }
 
   applyQuickRange(range: QuickRange) {
+    this.activeRange = range;
     const now = new Date();
     const end = new Date(now);
     let start = new Date(now);
@@ -90,6 +99,11 @@ export class AnalyticsPage {
 
     this.fromDate = this.formatDateInput(start);
     this.toDate = this.formatDateInput(end);
+  }
+
+  async applyCustomRange() {
+    this.activeRange = null;
+    await this.fetchStats();
   }
 
   exportCsv() {
@@ -151,6 +165,9 @@ export class AnalyticsPage {
     }
 
     const scopeText = this.scope?.mode === 'filtered' ? `Filtered: ${this.scope.query}` : 'Global analytics';
+    const safeScope = this.escapeHtml(scopeText);
+    const safeFrom = this.escapeHtml(this.range.from);
+    const safeTo = this.escapeHtml(this.range.to);
     const html = `
       <html>
         <head>
@@ -166,8 +183,8 @@ export class AnalyticsPage {
         </head>
         <body>
           <h1>Slink Analytics</h1>
-          <p>${scopeText}</p>
-          <p>Range: ${this.range.from} → ${this.range.to}</p>
+          <p>${safeScope}</p>
+          <p>Range: ${safeFrom} to ${safeTo}</p>
           <p>Include bots: ${this.range.include_bots ? 'yes' : 'no'}</p>
 
           <h2>Totals</h2>
@@ -195,11 +212,23 @@ export class AnalyticsPage {
   }
 
   private renderTable(headers: string[], rows: Array<[string, number]>) {
-    const head = headers.map((h) => `<th>${h}</th>`).join('');
+    const head = headers.map((h) => `<th>${this.escapeHtml(h)}</th>`).join('');
     const body = rows
-      .map((row) => `<tr><td>${row[0] ?? ''}</td><td>${row[1] ?? 0}</td></tr>`)
+      .map(
+        (row) =>
+          `<tr><td>${this.escapeHtml(row[0] ?? '')}</td><td>${this.escapeHtml(row[1] ?? 0)}</td></tr>`,
+      )
       .join('');
     return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+  }
+
+  private escapeHtml(value: unknown) {
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
   }
 
   private renderChart() {
@@ -225,8 +254,8 @@ export class AnalyticsPage {
           {
             label: 'Clicks',
             data: values,
-            borderColor: '#0ea5e9',
-            backgroundColor: 'rgba(14, 165, 233, 0.15)',
+            borderColor: '#c24718',
+            backgroundColor: 'rgba(194, 71, 24, 0.10)',
             fill: true,
             tension: 0.3,
             pointRadius: 0,
@@ -242,10 +271,11 @@ export class AnalyticsPage {
         scales: {
           x: {
             grid: { display: false },
-            ticks: { maxTicksLimit: 6 },
+            ticks: { maxTicksLimit: 6, color: '#6b7178' },
           },
           y: {
-            grid: { color: 'rgba(148, 163, 184, 0.2)' },
+            grid: { color: '#eef0f2' },
+            ticks: { color: '#6b7178', precision: 0 },
           },
         },
       },

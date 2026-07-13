@@ -1,116 +1,171 @@
-<template>
-  <div class="space-y-8">
-    <section class="panel">
-      <div class="flex flex-col gap-4">
-        <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p class="text-xs uppercase tracking-[0.3em] text-slink-muted">Analytics</p>
-            <h2 class="font-display text-2xl">Live performance overview</h2>
-          </div>
-          <div class="flex flex-wrap items-center gap-3">
-            <button class="btn-chip" type="button" click.trigger="applyQuickRangeAndFetch('24h')">Last 24h</button>
-            <button class="btn-chip" type="button" click.trigger="applyQuickRangeAndFetch('7d')">7d</button>
-            <button class="btn-chip" type="button" click.trigger="applyQuickRangeAndFetch('30d')">30d</button>
-            <button class="btn-chip" type="button" click.trigger="applyQuickRangeAndFetch('90d')">90d</button>
-          </div>
-        </div>
+<div class="page-stack">
+  <header class="page-heading">
+    <div>
+      <h1>Analytics</h1>
+      <p class="page-description">Click activity across your short links.</p>
+    </div>
+    <div class="page-actions" if.bind="stats">
+      <button class="btn-secondary" type="button" click.trigger="exportCsv()">Export CSV</button>
+      <button class="btn-secondary" type="button" click.trigger="exportPdf()">Print report</button>
+    </div>
+  </header>
 
-        <form class="flex flex-wrap items-center gap-3" submit.trigger="fetchStats()">
-          <label class="text-xs uppercase tracking-[0.3em] text-slink-muted">Filter</label>
+  <section class="setup-state" if.bind="!hasToken">
+    <div>
+      <h2>Connect the API to load analytics</h2>
+      <p>Add a bearer token with analytics access.</p>
+      <a class="btn-primary" href="/settings" load="../settings">Open settings</a>
+    </div>
+  </section>
+
+  <template if.bind="hasToken">
+    <section class="panel">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">Date range</h2>
+          <p class="section-copy" if.bind="scope">
+            ${scope.mode === 'global' ? 'All links' : `Filter: ${scope.query}`}
+            <span if.bind="scope.mode !== 'global'"> (${scope.matched_links} matched)</span>
+          </p>
+        </div>
+        <div class="segmented-control" aria-label="Quick date ranges">
+          <button type="button" data-active.bind="activeRange === '24h'" click.trigger="applyQuickRangeAndFetch('24h')">
+            24 hours
+          </button>
+          <button type="button" data-active.bind="activeRange === '7d'" click.trigger="applyQuickRangeAndFetch('7d')">
+            7 days
+          </button>
+          <button type="button" data-active.bind="activeRange === '30d'" click.trigger="applyQuickRangeAndFetch('30d')">
+            30 days
+          </button>
+          <button type="button" data-active.bind="activeRange === '90d'" click.trigger="applyQuickRangeAndFetch('90d')">
+            90 days
+          </button>
+        </div>
+      </div>
+
+      <form class="analytics-filters" submit.trigger:prevent="applyCustomRange()">
+        <div class="input-shell">
+          <label for="analytics-query">Link filter</label>
           <input
-            class="input-field min-w-[220px]"
-            placeholder="Try: url:youtube title:\"creator\""
+            id="analytics-query"
+            class="input-field"
+            placeholder="title:launch or slug:docs"
             value.bind="queryInput"
           />
-          <input class="input-field" type="date" value.bind="fromDate" />
-          <input class="input-field" type="date" value.bind="toDate" />
-          <label class="flex items-center gap-2 text-xs text-slink-muted">
-            <input type="checkbox" checked.bind="includeBots" />
-            Include bots
-          </label>
-          <button class="btn-outline" type="submit" disabled.bind="isLoading">Apply</button>
-          <button class="btn-chip" type="button" click.trigger="clearQuery()" if.bind="queryInput">
-            Clear
-          </button>
-          <button class="btn-chip" type="button" click.trigger="exportCsv()" if.bind="stats">
-            Export CSV
-          </button>
-          <button class="btn-chip" type="button" click.trigger="exportPdf()" if.bind="stats">
-            Export PDF
-          </button>
-        </form>
+          <p class="field-help">Supports url:, slug:, title:, and contains:.</p>
+        </div>
+        <div class="input-shell">
+          <label for="analytics-from">From</label>
+          <input id="analytics-from" class="input-field" type="date" value.bind="fromDate" />
+        </div>
+        <div class="input-shell">
+          <label for="analytics-to">To</label>
+          <input id="analytics-to" class="input-field" type="date" value.bind="toDate" />
+        </div>
+        <label class="button-row pb-2">
+          <input type="checkbox" checked.bind="includeBots" />
+          <span class="text-sm text-slink-muted">Include bots</span>
+        </label>
+        <div class="button-row">
+          <button class="btn-primary" type="submit" disabled.bind="isLoading">Apply</button>
+          <button class="btn-chip" type="button" click.trigger="clearQuery()" if.bind="queryInput">Clear</button>
+        </div>
+      </form>
 
-        <p class="text-xs text-slink-muted">
-          Operators: <span class="font-mono">url:</span>, <span class="font-mono">slug:</span>,
-          <span class="font-mono">title:</span>, <span class="font-mono">contains:</span>.
-        </p>
-        <p class="text-sm text-slink-muted" if.bind="scope">
-          ${scope.mode === 'global' ? 'Showing all link analytics.' : `Filtered by: ${scope.query}`}
-          <span if.bind="scope.mode !== 'global'"> · ${scope.matched_links} links matched</span>
-        </p>
-      </div>
+      <div class="notice notice--error" role="alert" if.bind="error">${error}</div>
+    </section>
 
-      <p class="mt-4 text-sm text-slink-muted" if.bind="isLoading">Loading...</p>
-      <p class="mt-4 text-sm text-slink-muted" if.bind="error">${error}</p>
+    <section class="metric-grid" aria-label="Analytics totals" aria-busy.bind="isLoading">
+      <template if.bind="isLoading">
+        <div class="metric-card" repeat.for="item of [1, 2, 3, 4]">
+          <div class="skeleton skeleton-line"></div>
+          <div class="skeleton skeleton-value"></div>
+        </div>
+      </template>
+      <template if.bind="!isLoading && stats">
+        <article class="metric-card">
+          <p class="metric-label">Clicks</p>
+          <p class="metric-value">${stats.total.toLocaleString()}</p>
+          <p class="metric-help">In this date range</p>
+        </article>
+        <article class="metric-card">
+          <p class="metric-label">Countries</p>
+          <p class="metric-value">${stats.by_country.length}</p>
+          <p class="metric-help">With recorded visits</p>
+        </article>
+        <article class="metric-card">
+          <p class="metric-label">Devices</p>
+          <p class="metric-value">${stats.by_device.length}</p>
+          <p class="metric-help">Device categories</p>
+        </article>
+        <article class="metric-card">
+          <p class="metric-label">Referrers</p>
+          <p class="metric-value">${stats.by_referrer.length}</p>
+          <p class="metric-help">Known traffic sources</p>
+        </article>
+      </template>
+    </section>
 
-      <div class="mt-6" if.bind="series.length">
-        <div class="panel-sub">
-          <p class="text-xs uppercase tracking-[0.3em] text-slink-muted">Trend</p>
-          <div class="chart-shell">
-            <canvas ref="chartCanvas"></canvas>
+    <section class="analytics-grid">
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <h2 class="panel-title">Clicks over time</h2>
+            <p class="panel-copy">Bot traffic is ${includeBots ? 'included' : 'excluded'}.</p>
           </div>
         </div>
+        <div class="chart-shell">
+          <canvas ref="chartCanvas" aria-label="Click trend chart"></canvas>
+        </div>
       </div>
 
-      <div class="mt-6 grid gap-6 lg:grid-cols-3" if.bind="stats">
-        <div class="panel-sub">
-          <p class="text-xs uppercase tracking-[0.3em] text-slink-muted">Total clicks</p>
-          <p class="mt-2 font-display text-3xl">${stats.total}</p>
-        </div>
-        <div class="panel-sub">
-          <p class="text-xs uppercase tracking-[0.3em] text-slink-muted">Top devices</p>
-          <div class="mt-3 space-y-2">
-            <div class="flex items-center justify-between" repeat.for="item of stats.by_device">
+      <div class="breakdown-grid">
+        <section class="panel">
+          <h2 class="panel-title">Devices</h2>
+          <div class="breakdown-list" if.bind="stats?.by_device.length">
+            <div class="breakdown-row" repeat.for="item of stats.by_device">
               <span>${item.device_type}</span>
-              <span class="text-slink-muted">${item.total}</span>
+              <strong>${item.total}</strong>
             </div>
           </div>
-        </div>
-        <div class="panel-sub">
-          <p class="text-xs uppercase tracking-[0.3em] text-slink-muted">Top browsers</p>
-          <div class="mt-3 space-y-2">
-            <div class="flex items-center justify-between" repeat.for="item of stats.by_browser">
+          <p class="empty-state" if.bind="stats && !stats.by_device.length">No device data in this range.</p>
+        </section>
+
+        <section class="panel">
+          <h2 class="panel-title">Browsers</h2>
+          <div class="breakdown-list" if.bind="stats?.by_browser.length">
+            <div class="breakdown-row" repeat.for="item of stats.by_browser">
               <span>${item.browser}</span>
-              <span class="text-slink-muted">${item.total}</span>
+              <strong>${item.total}</strong>
             </div>
           </div>
-        </div>
+          <p class="empty-state" if.bind="stats && !stats.by_browser.length">No browser data in this range.</p>
+        </section>
       </div>
     </section>
 
-    <section class="grid gap-6 lg:grid-cols-2" if.bind="stats">
+    <section class="grid gap-5 lg:grid-cols-2">
       <div class="panel">
-        <h3 class="font-display text-xl">Top countries</h3>
-        <div class="mt-6 space-y-3">
-          <div class="flex items-center justify-between" repeat.for="item of stats.by_country">
+        <h2 class="panel-title">Countries</h2>
+        <div class="breakdown-list" if.bind="stats?.by_country.length">
+          <div class="breakdown-row" repeat.for="item of stats.by_country">
             <span>${item.country}</span>
-            <span class="text-slink-muted">${item.total}</span>
+            <strong>${item.total}</strong>
           </div>
         </div>
+        <p class="empty-state" if.bind="stats && !stats.by_country.length">No country data in this range.</p>
       </div>
       <div class="panel">
-        <h3 class="font-display text-xl">Top referrers</h3>
-        <div class="mt-6 space-y-3">
-          <div class="flex items-center justify-between" repeat.for="item of stats.by_referrer">
+        <h2 class="panel-title">Referrers</h2>
+        <div class="breakdown-list" if.bind="stats?.by_referrer.length">
+          <div class="breakdown-row" repeat.for="item of stats.by_referrer">
             <span>${item.referer}</span>
-            <span class="text-slink-muted">${item.total}</span>
+            <strong>${item.total}</strong>
           </div>
         </div>
+        <p class="empty-state" if.bind="stats && !stats.by_referrer.length">No referrer data in this range.</p>
       </div>
     </section>
-
-    <div class="empty-state" if.bind="!isLoading && !error && !stats">
-      <p>No analytics yet. Create a link and share it to start tracking.</p>
-    </div>
-  </div>
-</template>
+  </template>
+</div>

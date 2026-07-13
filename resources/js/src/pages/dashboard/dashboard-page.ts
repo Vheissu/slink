@@ -1,21 +1,28 @@
 import { ApiService, LinkDto, UserStatsDto } from '../../services/api';
+import { AuthService } from '../../services/auth';
 
 export class DashboardPage {
-  static inject = [ApiService];
+  static inject = [ApiService, AuthService];
   links: LinkDto[] = [];
   stats: UserStatsDto = { links: 0, clicks: 0, tags: 0 };
   isLoading = true;
   error = '';
+  hasToken = false;
   copiedSlug: string | null = null;
   private copyTimeout?: number;
 
-  constructor(private api: ApiService) {}
+  constructor(private api: ApiService, private auth: AuthService) {}
 
   get metrics() {
     return [
-      { label: 'Links', value: this.stats.links.toLocaleString() },
-      { label: 'Total clicks', value: this.stats.clicks.toLocaleString() },
-      { label: 'Tags', value: this.stats.tags.toLocaleString() },
+      { label: 'Links', value: this.stats.links.toLocaleString(), help: 'Managed destinations' },
+      { label: 'Total clicks', value: this.stats.clicks.toLocaleString(), help: 'Recorded visits' },
+      {
+        label: 'Clicks per link',
+        value: this.stats.links ? (this.stats.clicks / this.stats.links).toFixed(1) : '0',
+        help: 'Across all links',
+      },
+      { label: 'Tags', value: this.stats.tags.toLocaleString(), help: 'Used for sorting' },
     ];
   }
 
@@ -59,15 +66,35 @@ export class DashboardPage {
   }
 
   async attached() {
+    this.hasToken = this.auth.hasToken();
+    if (!this.hasToken) {
+      this.isLoading = false;
+      return;
+    }
+
     this.isLoading = true;
     this.error = '';
     try {
-      this.links = await this.api.listLinks();
-      this.stats = await this.api.getUserStats();
+      const [links, stats] = await Promise.all([
+        this.api.listLinks(),
+        this.api.getUserStats(),
+      ]);
+      this.links = links;
+      this.stats = stats;
     } catch (err) {
       this.error = err instanceof Error ? err.message : 'Failed to load dashboard data';
     } finally {
       this.isLoading = false;
     }
+  }
+
+  detaching() {
+    if (this.copyTimeout) {
+      window.clearTimeout(this.copyTimeout);
+    }
+  }
+
+  statusClass(link: LinkDto) {
+    return link.is_active ? 'status-pill' : 'status-pill status-pill--neutral';
   }
 }
