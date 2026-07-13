@@ -46,7 +46,7 @@ class Link extends Model
 
     public function getHasPasswordAttribute(): bool
     {
-        return !empty($this->attributes['password'] ?? null);
+        return ! empty($this->attributes['password'] ?? null);
     }
 
     public function user(): BelongsTo

@@ -17,14 +17,12 @@ class CheckLinkHealth implements ShouldQueue
     use Queueable;
     use SerializesModels;
 
-    public function __construct(public string $linkId)
-    {
-    }
+    public function __construct(public string $linkId) {}
 
     public function handle(): void
     {
         $link = Link::query()->find($this->linkId);
-        if (!$link) {
+        if (! $link) {
             return;
         }
 

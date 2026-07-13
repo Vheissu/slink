@@ -6,8 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Click;
 use App\Models\Link;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class AnalyticsController extends Controller
 {
@@ -25,7 +25,7 @@ class AnalyticsController extends Controller
         $to = $to->endOfDay();
 
         $granularity = $request->query('granularity');
-        if (!in_array($granularity, ['day', 'hour'], true)) {
+        if (! in_array($granularity, ['day', 'hour'], true)) {
             $granularity = $from->diffInDays($to) <= 2 ? 'hour' : 'day';
         }
 
@@ -34,26 +34,26 @@ class AnalyticsController extends Controller
             $filters = $this->parseQueryFilters($query);
             $linksQuery->where(function ($builder) use ($filters) {
                 foreach ($filters['url'] as $value) {
-                    $builder->where('original_url', 'ilike', '%' . $value . '%');
+                    $builder->where('original_url', 'ilike', '%'.$value.'%');
                 }
                 foreach ($filters['slug'] as $value) {
-                    $builder->where('slug', 'ilike', '%' . $value . '%');
+                    $builder->where('slug', 'ilike', '%'.$value.'%');
                 }
                 foreach ($filters['title'] as $value) {
-                    $builder->where('title', 'ilike', '%' . $value . '%');
+                    $builder->where('title', 'ilike', '%'.$value.'%');
                 }
                 foreach ($filters['contains'] as $value) {
                     $builder->where(function ($inner) use ($value) {
-                        $inner->where('slug', 'ilike', '%' . $value . '%')
-                            ->orWhere('original_url', 'ilike', '%' . $value . '%')
-                            ->orWhere('title', 'ilike', '%' . $value . '%');
+                        $inner->where('slug', 'ilike', '%'.$value.'%')
+                            ->orWhere('original_url', 'ilike', '%'.$value.'%')
+                            ->orWhere('title', 'ilike', '%'.$value.'%');
                     });
                 }
                 foreach ($filters['free'] as $value) {
                     $builder->where(function ($inner) use ($value) {
-                        $inner->where('slug', 'ilike', '%' . $value . '%')
-                            ->orWhere('original_url', 'ilike', '%' . $value . '%')
-                            ->orWhere('title', 'ilike', '%' . $value . '%');
+                        $inner->where('slug', 'ilike', '%'.$value.'%')
+                            ->orWhere('original_url', 'ilike', '%'.$value.'%')
+                            ->orWhere('title', 'ilike', '%'.$value.'%');
                     });
                 }
             });
@@ -67,7 +67,7 @@ class AnalyticsController extends Controller
             })
             ->whereBetween('created_at', [$from, $to]);
 
-        if (!$includeBots) {
+        if (! $includeBots) {
             $base->where('is_bot', false);
         }
 
@@ -123,7 +123,7 @@ class AnalyticsController extends Controller
             ->whereIn('link_id', $linksQuery->select('id'))
             ->whereBetween('date', [$from->toDateString(), $to->toDateString()]);
 
-        if (!$includeBots) {
+        if (! $includeBots) {
             $aggregate->where('is_bot', false);
         }
 
@@ -192,6 +192,7 @@ class AnalyticsController extends Controller
 
         if (filter_var($query, FILTER_VALIDATE_URL)) {
             $filters['url'][] = $query;
+
             return $filters;
         }
 
@@ -219,15 +220,19 @@ class AnalyticsController extends Controller
                     case 'link':
                     case 'original_url':
                         $filters['url'][] = $value;
+
                         continue 2;
                     case 'slug':
                         $filters['slug'][] = $value;
+
                         continue 2;
                     case 'title':
                         $filters['title'][] = $value;
+
                         continue 2;
                     case 'contains':
                         $filters['contains'][] = $value;
+
                         continue 2;
                 }
             }

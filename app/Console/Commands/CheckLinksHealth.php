@@ -18,7 +18,7 @@ class CheckLinksHealth extends Command
         $limit = $limit > 0 ? $limit : 200;
 
         $query = Link::query()->where('is_active', true);
-        if (!$this->option('all')) {
+        if (! $this->option('all')) {
             $query->where(function ($builder) {
                 $builder->whereNull('last_checked_at')
                     ->orWhere('last_checked_at', '<=', now()->subHours(24));
@@ -28,6 +28,7 @@ class CheckLinksHealth extends Command
         $links = $query->limit($limit)->get();
         if ($links->isEmpty()) {
             $this->info('No links require a health check.');
+
             return self::SUCCESS;
         }
 
@@ -39,7 +40,8 @@ class CheckLinksHealth extends Command
             }
         }
 
-        $this->info('Queued health checks for ' . $links->count() . ' links.');
+        $this->info('Queued health checks for '.$links->count().' links.');
+
         return self::SUCCESS;
     }
 }

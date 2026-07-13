@@ -3,15 +3,15 @@
 namespace App\Jobs;
 
 use App\Models\Click;
-use Jenssegers\Agent\Agent;
-use Stevebauman\Location\Facades\Location;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+use Jenssegers\Agent\Agent;
+use Stevebauman\Location\Facades\Location;
 
 class RecordClick implements ShouldQueue
 {
@@ -25,12 +25,11 @@ class RecordClick implements ShouldQueue
         public ?string $ip,
         public ?string $userAgent,
         public ?string $referer,
-    ) {
-    }
+    ) {}
 
     public function handle(): void
     {
-        $agent = new Agent();
+        $agent = new Agent;
         if ($this->userAgent) {
             $agent->setUserAgent($this->userAgent);
         }
@@ -51,11 +50,11 @@ class RecordClick implements ShouldQueue
             }
         }
 
-        if (!is_object($locationData)) {
+        if (! is_object($locationData)) {
             $locationData = null;
         }
 
-        $ipHash = $this->ip ? hash('sha256', $this->ip . config('app.key')) : null;
+        $ipHash = $this->ip ? hash('sha256', $this->ip.config('app.key')) : null;
         if ($ipHash) {
             $recentDuplicate = Click::query()
                 ->where('link_id', $this->linkId)

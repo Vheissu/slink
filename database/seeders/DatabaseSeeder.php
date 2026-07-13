@@ -86,15 +86,15 @@ class DatabaseSeeder extends Seeder
                 ->filter()
                 ->all();
 
-            if (!empty($tagIds)) {
+            if (! empty($tagIds)) {
                 $link->tags()->sync($tagIds);
             }
         }
 
         $plainToken = env('SLINK_SEED_TOKEN');
-        if (!$plainToken) {
+        if (! $plainToken) {
             $plainToken = Str::random(40);
-            $this->command?->warn('Generated SLINK_SEED_TOKEN (store for local use): ' . $plainToken);
+            $this->command?->warn('Generated SLINK_SEED_TOKEN (store for local use): '.$plainToken);
         }
 
         $hashed = hash('sha256', $plainToken);

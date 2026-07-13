@@ -14,7 +14,7 @@ class RedirectController extends Controller
     {
         $link = Link::query()->where('slug', $slug)->firstOrFail();
 
-        if (!$link->is_active) {
+        if (! $link->is_active) {
             return response()->json(['message' => 'Link inactive'], 410);
         }
 
@@ -26,7 +26,7 @@ class RedirectController extends Controller
             return response()->json(['message' => 'Link limit reached'], 410);
         }
 
-        if ($link->password && !$this->hasValidToken($request, $link->id)) {
+        if ($link->password && ! $this->hasValidToken($request, $link->id)) {
             if ($request->expectsJson()) {
                 return response()->json(['message' => 'Password required'], 403);
             }
@@ -61,24 +61,24 @@ class RedirectController extends Controller
     {
         $link = Link::query()->where('slug', $slug)->firstOrFail();
 
-        if (!$link->password) {
+        if (! $link->password) {
             if ($request->expectsJson()) {
                 return response()->json(['message' => 'Link not protected'], 422);
             }
 
-            return redirect()->to('/' . $slug);
+            return redirect()->to('/'.$slug);
         }
 
         $data = $request->validate([
             'password' => ['required', 'string'],
         ]);
 
-        if (!password_verify($data['password'], $link->password ?? '')) {
+        if (! password_verify($data['password'], $link->password ?? '')) {
             if ($request->expectsJson()) {
                 return response()->json(['message' => 'Invalid password'], 422);
             }
 
-            return redirect()->to('/' . $slug)->with('error', 'Invalid password');
+            return redirect()->to('/'.$slug)->with('error', 'Invalid password');
         }
 
         $token = Str::random(32);
@@ -91,13 +91,13 @@ class RedirectController extends Controller
             ]);
         }
 
-        return redirect()->to('/' . $slug . '?token=' . $token);
+        return redirect()->to('/'.$slug.'?token='.$token);
     }
 
     private function hasValidToken(Request $request, string $linkId): bool
     {
         $token = $request->query('token');
-        if (!$token) {
+        if (! $token) {
             return false;
         }
 
@@ -106,6 +106,6 @@ class RedirectController extends Controller
 
     private function tokenCacheKey(string $token): string
     {
-        return 'link-verify:' . $token;
+        return 'link-verify:'.$token;
     }
 }

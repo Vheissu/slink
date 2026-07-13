@@ -6,8 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\ApiToken;
 use App\Support\AuditLogger;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class UserController extends Controller
 {

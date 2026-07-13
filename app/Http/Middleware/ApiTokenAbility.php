@@ -10,7 +10,7 @@ class ApiTokenAbility
     public function handle(Request $request, Closure $next, string ...$abilities)
     {
         $token = $request->attributes->get('api_token');
-        if (!$token) {
+        if (! $token) {
             return response()->json(['message' => 'Unauthorized'], 401);
         }
 

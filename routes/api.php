@@ -1,12 +1,12 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\Api\V1\AuditLogController;
 use App\Http\Controllers\Api\V1\AnalyticsController;
+use App\Http\Controllers\Api\V1\AuditLogController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\LinkController;
 use App\Http\Controllers\Api\V1\TagController;
 use App\Http\Controllers\Api\V1\UserController;
+use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->middleware(['api_token', 'throttle:api'])->group(function () {
     Route::get('/health/queue', [HealthController::class, 'queue'])->middleware('token_ability:health:read');

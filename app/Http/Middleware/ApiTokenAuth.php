@@ -11,14 +11,14 @@ class ApiTokenAuth
     public function handle(Request $request, Closure $next)
     {
         $bearer = $request->bearerToken();
-        if (!$bearer) {
+        if (! $bearer) {
             return response()->json(['message' => 'Unauthorized'], 401);
         }
 
         $hashed = hash('sha256', $bearer);
         $token = ApiToken::query()->where('token', $hashed)->first();
 
-        if (!$token) {
+        if (! $token) {
             return response()->json(['message' => 'Unauthorized'], 401);
         }
 
