@@ -9,10 +9,10 @@
     </a>
 
     <nav class="nav" aria-label="Primary navigation">
-      <a class.bind="isRouteActive('dashboard') ? 'nav-item active' : 'nav-item'" aria-current.bind="isRouteActive('dashboard') ? 'page' : null" href="/dashboard" load="dashboard">Dashboard</a>
-      <a class.bind="isRouteActive('links') ? 'nav-item active' : 'nav-item'" aria-current.bind="isRouteActive('links') ? 'page' : null" href="/links" load="links">Links</a>
-      <a class.bind="isRouteActive('analytics') ? 'nav-item active' : 'nav-item'" aria-current.bind="isRouteActive('analytics') ? 'page' : null" href="/analytics" load="analytics">Analytics</a>
-      <a class.bind="isRouteActive('settings') ? 'nav-item active' : 'nav-item'" aria-current.bind="isRouteActive('settings') ? 'page' : null" href="/settings" load="settings">Settings</a>
+      <a class.bind="(!currentRoute.path || currentRoute.path === 'dashboard') ? 'nav-item active' : 'nav-item'" aria-current.bind="(!currentRoute.path || currentRoute.path === 'dashboard') ? 'page' : null" href="/dashboard" load="dashboard">Dashboard</a>
+      <a class.bind="(currentRoute.path === 'links') ? 'nav-item active' : 'nav-item'" aria-current.bind="(currentRoute.path === 'links') ? 'page' : null" href="/links" load="links">Links</a>
+      <a class.bind="(currentRoute.path === 'analytics') ? 'nav-item active' : 'nav-item'" aria-current.bind="(currentRoute.path === 'analytics') ? 'page' : null" href="/analytics" load="analytics">Analytics</a>
+      <a class.bind="(currentRoute.path === 'settings') ? 'nav-item active' : 'nav-item'" aria-current.bind="(currentRoute.path === 'settings') ? 'page' : null" href="/settings" load="settings">Settings</a>
     </nav>
 
     <div class="sidebar-footer">
@@ -27,7 +27,7 @@
           <span class.bind="queueStatusClass">${queueStatusLabel}</span>
         </div>
         <p class="connection-counts" if.bind="queueHealth">
-          ${queueHealth.pending ?? 0} pending, ${queueHealth.failed ?? 0} failed
+          ${queueHealth.pending ?? 'Unknown'} pending, ${queueHealth.failed ?? 'unknown'} failed
         </p>
         <p class="form-error" if.bind="queueError">${queueError}</p>
         <button
@@ -35,8 +35,9 @@
           type="button"
           if.bind="hasToken"
           click.trigger="refreshQueueHealth()"
+          disabled.bind="isLoadingQueue"
         >
-          Refresh status
+          ${isLoadingQueue ? 'Checking…' : 'Refresh status'}
         </button>
         <a class="text-button" href="/settings" load="settings" if.bind="!hasToken">Connect API</a>
       </div>
@@ -68,10 +69,10 @@
     </main>
 
     <nav class="mobile-nav" aria-label="Mobile navigation">
-      <a class.bind="isRouteActive('dashboard') ? 'active' : ''" aria-current.bind="isRouteActive('dashboard') ? 'page' : null" href="/dashboard" load="dashboard">Dashboard</a>
-      <a class.bind="isRouteActive('links') ? 'active' : ''" aria-current.bind="isRouteActive('links') ? 'page' : null" href="/links" load="links">Links</a>
-      <a class.bind="isRouteActive('analytics') ? 'active' : ''" aria-current.bind="isRouteActive('analytics') ? 'page' : null" href="/analytics" load="analytics">Analytics</a>
-      <a class.bind="isRouteActive('settings') ? 'active' : ''" aria-current.bind="isRouteActive('settings') ? 'page' : null" href="/settings" load="settings">Settings</a>
+      <a class.bind="(!currentRoute.path || currentRoute.path === 'dashboard') ? 'active' : ''" aria-current.bind="(!currentRoute.path || currentRoute.path === 'dashboard') ? 'page' : null" href="/dashboard" load="dashboard">Dashboard</a>
+      <a class.bind="(currentRoute.path === 'links') ? 'active' : ''" aria-current.bind="(currentRoute.path === 'links') ? 'page' : null" href="/links" load="links">Links</a>
+      <a class.bind="(currentRoute.path === 'analytics') ? 'active' : ''" aria-current.bind="(currentRoute.path === 'analytics') ? 'page' : null" href="/analytics" load="analytics">Analytics</a>
+      <a class.bind="(currentRoute.path === 'settings') ? 'active' : ''" aria-current.bind="(currentRoute.path === 'settings') ? 'page' : null" href="/settings" load="settings">Settings</a>
     </nav>
   </div>
 </div>

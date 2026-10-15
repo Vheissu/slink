@@ -1,4 +1,5 @@
 import { IHttpClient } from '@aurelia/fetch-client';
+import { AuthService } from './auth';
 
 export interface LinkDto {
   id: string;
@@ -111,198 +112,101 @@ export class ApiError extends Error {
   }
 }
 
-export class ApiService {
-  static inject = [IHttpClient];
-  private token: string | null = null;
+export interface BulkLinkPayload {
+  original_url: string;
+  title?: string | null;
+  expires_at?: string | null;
+  max_clicks?: number | null;
+}
 
-  constructor(private http: IHttpClient) {
+export interface CreateLinkPayload extends BulkLinkPayload {
+  notes?: string | null;
+  password?: string | null;
+  is_active?: boolean;
+  tags?: string[];
+}
+
+export type UpdateLinkPayload = Partial<CreateLinkPayload>;
+export type BulkAction = 'activate' | 'deactivate' | 'delete' | 'tag' | 'untag';
+
+type QueryParams = Record<string, string | number | boolean | null | undefined>;
+
+export class ApiService {
+  static inject = [IHttpClient, AuthService];
+
+  constructor(private http: IHttpClient, auth: AuthService) {
     this.http.configure((config) => {
-      config
-        .withBaseUrl('/api/v1/')
-        .withInterceptor({
-          request: (request) => {
-            request.headers.set('Accept', 'application/json');
-            if (this.token) {
-              request.headers.set('Authorization', `Bearer ${this.token}`);
-            }
-            return request;
-          },
-        });
+      config.withBaseUrl('/api/v1/').withInterceptor({
+        request: (request) => {
+          request.headers.set('Accept', 'application/json');
+          const token = auth.getToken();
+          if (token) request.headers.set('Authorization', `Bearer ${token}`);
+          else request.headers.delete('Authorization');
+          return request;
+        },
+      });
     });
   }
 
-  setToken(token: string | null) {
-    this.token = token;
-  }
-
   async listLinks(params?: LinkListParams): Promise<LinkDto[]> {
-    const page = await this.listLinksPage(params);
-    return page.data;
+    return (await this.listLinksPage(params)).data;
   }
 
-  async listLinksPage(params?: LinkListParams): Promise<LinkPageDto> {
-    const searchParams = new URLSearchParams();
-    if (params?.search) {
-      searchParams.set('search', params.search);
-    }
-    if (params?.status && params.status !== 'all') {
-      searchParams.set('status', params.status);
-    }
-    if (params?.tag) {
-      searchParams.set('tag', params.tag);
-    }
-    if (params?.from) {
-      searchParams.set('from', params.from);
-    }
-    if (params?.to) {
-      searchParams.set('to', params.to);
-    }
-    if (params?.page) {
-      searchParams.set('page', String(params.page));
-    }
-    if (params?.per_page) {
-      searchParams.set('per_page', String(params.per_page));
-    }
-    const url = searchParams.toString() ? `links?${searchParams.toString()}` : 'links';
-    const response = await this.http.fetch(url);
-    await this.ensureOk(response);
-    return response.json();
+  listLinksPage(params?: LinkListParams): Promise<LinkPageDto> {
+    return this.request(this.queryPath('links', {
+      ...params,
+      status: params?.status === 'all' ? undefined : params?.status,
+    }));
   }
 
-  async getUserStats(): Promise<UserStatsDto> {
-    const response = await this.http.fetch('user/stats');
-    await this.ensureOk(response);
-    return response.json();
+  getUserStats(): Promise<UserStatsDto> {
+    return this.request('user/stats');
   }
 
-  async getLinkStats(linkId: string): Promise<LinkStatsDto> {
-    const response = await this.http.fetch(`links/${linkId}/stats`);
-    await this.ensureOk(response);
-    return response.json();
+  getLinkStats(linkId: string): Promise<LinkStatsDto> {
+    return this.request(`links/${linkId}/stats`);
   }
 
-  async getAnalytics(params?: {
+  getAnalytics(params?: {
     query?: string | null;
     from?: string | null;
     to?: string | null;
     include_bots?: boolean;
   }): Promise<AnalyticsResponseDto> {
-    const searchParams = new URLSearchParams();
-    if (params?.query) {
-      searchParams.set('query', params.query);
-    }
-    if (params?.from) {
-      searchParams.set('from', params.from);
-    }
-    if (params?.to) {
-      searchParams.set('to', params.to);
-    }
-    if (params?.include_bots) {
-      searchParams.set('include_bots', 'true');
-    }
-    const url = searchParams.toString() ? `analytics?${searchParams.toString()}` : 'analytics';
-    const response = await this.http.fetch(url);
-    await this.ensureOk(response);
-    return response.json();
+    return this.request(this.queryPath('analytics', params));
   }
 
-  async createLink(payload: { original_url: string; title?: string | null; password?: string | null }): Promise<LinkDto> {
-    const response = await this.http.fetch('links', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-    await this.ensureOk(response);
-    return response.json();
+  createLink(payload: CreateLinkPayload): Promise<LinkDto> {
+    return this.sendJson('links', 'POST', payload);
   }
 
-  async updateLink(
-    linkId: string,
-    payload: {
-      title?: string | null;
-      original_url?: string | null;
-      notes?: string | null;
-      password?: string | null;
-      expires_at?: string | null;
-      max_clicks?: number | null;
-      is_active?: boolean;
-      tags?: string[];
-    },
-  ): Promise<LinkDto> {
-    const response = await this.http.fetch(`links/${linkId}`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-    await this.ensureOk(response);
-    return response.json();
+  updateLink(linkId: string, payload: UpdateLinkPayload): Promise<LinkDto> {
+    return this.sendJson(`links/${linkId}`, 'PATCH', payload);
   }
 
-  async bulkActionLinks(payload: { action: string; ids: string[]; tag_id?: string }): Promise<{ affected?: number }> {
-    const response = await this.http.fetch('links/actions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-    await this.ensureOk(response);
-    return response.json();
+  bulkActionLinks(payload: { action: BulkAction; ids: string[]; tag_id?: string }): Promise<{ affected: number }> {
+    return this.sendJson('links/actions', 'POST', payload);
   }
 
-  async bulkCreateLinks(
-    links: Array<{
-      original_url: string;
-      slug?: string | null;
-      title?: string | null;
-      expires_at?: string | null;
-      max_clicks?: number | null;
-    }>,
-  ): Promise<{ data: LinkDto[] }> {
-    const response = await this.http.fetch('links/bulk', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ links }),
-    });
-    await this.ensureOk(response);
-    return response.json();
+  bulkCreateLinks(links: BulkLinkPayload[]): Promise<{ data: LinkDto[] }> {
+    return this.sendJson('links/bulk', 'POST', { links });
   }
 
-  async getProfile() {
-    const response = await this.http.fetch('user');
-    await this.ensureOk(response);
-    return response.json();
+  getProfile(): Promise<{ id: string; name: string; email: string }> {
+    return this.request('user');
   }
 
   async listTags(): Promise<TagDto[]> {
-    const response = await this.http.fetch('tags');
-    await this.ensureOk(response);
-    const payload = await response.json();
-    return payload.data ?? payload;
+    const payload = await this.request<{ data: TagDto[] } | TagDto[]>('tags');
+    return Array.isArray(payload) ? payload : payload.data;
   }
 
-  async createTag(payload: { name: string; color?: string | null }): Promise<TagDto> {
-    const response = await this.http.fetch('tags', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-    await this.ensureOk(response);
-    return response.json();
+  createTag(payload: { name: string; color?: string | null }): Promise<TagDto> {
+    return this.sendJson('tags', 'POST', payload);
   }
 
-  async getQueueHealth(): Promise<QueueHealthDto> {
-    const response = await this.http.fetch('health/queue');
-    await this.ensureOk(response);
-    return response.json();
+  getQueueHealth(): Promise<QueueHealthDto> {
+    return this.request('health/queue');
   }
 
   async listAuditLogs(params?: {
@@ -313,52 +217,44 @@ export class ApiService {
     to?: string;
     per_page?: number;
   }): Promise<AuditLogDto[]> {
-    const searchParams = new URLSearchParams();
-    if (params?.action) {
-      searchParams.set('action', params.action);
-    }
-    if (params?.subject_type) {
-      searchParams.set('subject_type', params.subject_type);
-    }
-    if (params?.subject_id) {
-      searchParams.set('subject_id', params.subject_id);
-    }
-    if (params?.from) {
-      searchParams.set('from', params.from);
-    }
-    if (params?.to) {
-      searchParams.set('to', params.to);
-    }
-    if (params?.per_page) {
-      searchParams.set('per_page', String(params.per_page));
-    }
-    const url = searchParams.toString() ? `audit-logs?${searchParams.toString()}` : 'audit-logs';
-    const response = await this.http.fetch(url);
-    await this.ensureOk(response);
-    const payload = await response.json();
-    return payload.data ?? payload;
+    const payload = await this.request<{ data: AuditLogDto[] } | AuditLogDto[]>(this.queryPath('audit-logs', params));
+    return Array.isArray(payload) ? payload : payload.data;
   }
 
-  private async ensureOk(response: Response) {
+  private queryPath(path: string, params?: QueryParams): string {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(params ?? {})) {
+      if (value !== undefined && value !== null && value !== '') query.set(key, String(value));
+    }
+    return query.size ? `${path}?${query}` : path;
+  }
+
+  private sendJson<T>(path: string, method: 'POST' | 'PATCH', payload: unknown): Promise<T> {
+    return this.request(path, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  private async request<T>(path: string, options?: RequestInit): Promise<T> {
+    const response = await this.http.fetch(path, options);
     if (!response.ok) {
+      const fallback = `Request failed (${response.status}). Please try again.`;
+      let message = fallback;
       const body = await response.text();
-      let message = body || `Request failed (${response.status})`;
-
-      if (body) {
-        try {
-          const payload = JSON.parse(body) as {
-            message?: string;
-            errors?: Record<string, string[]>;
-          };
-          const validationMessage = payload.errors
-            ? Object.values(payload.errors).flat().find(Boolean)
-            : null;
-          message = validationMessage || payload.message || message;
-        } catch {
-          // Keep the plain-text response.
-        }
+      try {
+        const payload = JSON.parse(body);
+        const validation = payload?.errors && typeof payload.errors === 'object'
+          ? Object.values(payload.errors).flat().find((value) => typeof value === 'string' && value)
+          : null;
+        message = typeof validation === 'string'
+          ? validation
+          : typeof payload?.message === 'string' ? payload.message : fallback;
+      } catch {
+        const isHtml = response.headers.get('Content-Type')?.includes('html') || body.trimStart().startsWith('<');
+        if (!isHtml && body && body.length <= 500) message = body;
       }
-
       if (response.status === 401) {
         message = message.toLowerCase().includes('expired')
           ? 'This API token has expired. Add a new token in Settings.'
@@ -366,8 +262,8 @@ export class ApiService {
       } else if (response.status === 403) {
         message = 'This API token does not have permission for that action.';
       }
-
       throw new ApiError(response.status, message);
     }
+    return response.json() as Promise<T>;
   }
 }

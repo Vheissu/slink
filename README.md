@@ -155,6 +155,7 @@ Serve the backend via your preferred web server or `php artisan serve`. Ensure `
 ```bash
 npm run dev
 npm run typecheck
+npm test
 npm run build
 composer test
 vendor/bin/pint --test

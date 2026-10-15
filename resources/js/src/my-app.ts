@@ -2,6 +2,7 @@ import { ICurrentRoute, IRouter, route } from '@aurelia/router';
 import { UiActionsService } from './services/ui-actions';
 import { AuthService } from './services/auth';
 import { ApiService, QueueHealthDto } from './services/api';
+import { LatestRequest } from './utils/latest-request';
 
 @route({
   routes: [
@@ -19,13 +20,15 @@ export class MyApp {
   hasToken = false;
   queueHealth: QueueHealthDto | null = null;
   queueError = '';
+  isLoadingQueue = false;
+  private queueRequest = new LatestRequest();
 
   constructor(
     private router: IRouter,
     public currentRoute: ICurrentRoute,
     private actions: UiActionsService,
     private auth: AuthService,
-    private api: ApiService
+    private api: ApiService,
   ) {}
 
   attached() {
@@ -37,6 +40,7 @@ export class MyApp {
   }
 
   detaching() {
+    this.queueRequest.cancel();
     window.removeEventListener('slink:token', this.onTokenEvent);
   }
 
@@ -46,7 +50,10 @@ export class MyApp {
     if (this.hasToken) {
       this.refreshQueueHealth();
     } else {
+      this.queueRequest.cancel();
       this.queueHealth = null;
+      this.queueError = '';
+      this.isLoadingQueue = false;
     }
   };
 
@@ -64,18 +71,25 @@ export class MyApp {
     if (!this.hasToken) {
       return;
     }
+    const isCurrent = this.queueRequest.start();
+    this.isLoadingQueue = true;
+    this.queueHealth = null;
     this.queueError = '';
     try {
-      this.queueHealth = await this.api.getQueueHealth();
+      const health = await this.api.getQueueHealth();
+      if (isCurrent()) this.queueHealth = health;
     } catch (err) {
+      if (!isCurrent()) return;
       this.queueError = err instanceof Error ? err.message : 'Failed to load queue status';
       this.queueHealth = null;
+    } finally {
+      if (isCurrent()) this.isLoadingQueue = false;
     }
   }
 
   get queueStatusLabel() {
     if (!this.queueHealth) {
-      return 'Unknown';
+      return this.isLoadingQueue ? 'Checking…' : 'Unknown';
     }
     const status = this.queueHealth.status;
     if (status === 'running') {
@@ -87,7 +101,7 @@ export class MyApp {
     if (status === 'inactive') {
       return 'Inactive';
     }
-    return status;
+    return status.charAt(0).toUpperCase() + status.slice(1);
   }
 
   get queueStatusClass() {
@@ -108,13 +122,6 @@ export class MyApp {
   }
 
   get connectionLabel() {
-    return this.hasToken ? 'API connected' : 'API setup required';
-  }
-
-  isRouteActive(path: string) {
-    const currentPath = this.currentRoute.path || window.location.pathname.replace(/^\//, '');
-    return path === 'dashboard'
-      ? currentPath === '' || currentPath === 'dashboard'
-      : currentPath === path;
+    return this.hasToken ? 'API token saved' : 'API setup required';
   }
 }

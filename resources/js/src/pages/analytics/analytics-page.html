@@ -5,8 +5,8 @@
       <p class="page-description">Click activity across your short links.</p>
     </div>
     <div class="page-actions" if.bind="stats">
-      <button class="btn-secondary" type="button" click.trigger="exportCsv()">Export CSV</button>
-      <button class="btn-secondary" type="button" click.trigger="exportPdf()">Print report</button>
+      <button class="btn-secondary" type="button" click.trigger="exportCsv()" disabled.bind="isLoading">Export CSV</button>
+      <button class="btn-secondary" type="button" click.trigger="exportPdf()" disabled.bind="isLoading">Print report</button>
     </div>
   </header>
 
@@ -29,16 +29,16 @@
           </p>
         </div>
         <div class="segmented-control" aria-label="Quick date ranges">
-          <button type="button" data-active.bind="activeRange === '24h'" click.trigger="applyQuickRangeAndFetch('24h')">
-            24 hours
+          <button type="button" data-active.bind="activeRange === 'today'" aria-pressed.bind="activeRange === 'today'" click.trigger="applyQuickRangeAndFetch('today')">
+            Today
           </button>
-          <button type="button" data-active.bind="activeRange === '7d'" click.trigger="applyQuickRangeAndFetch('7d')">
+          <button type="button" data-active.bind="activeRange === '7d'" aria-pressed.bind="activeRange === '7d'" click.trigger="applyQuickRangeAndFetch('7d')">
             7 days
           </button>
-          <button type="button" data-active.bind="activeRange === '30d'" click.trigger="applyQuickRangeAndFetch('30d')">
+          <button type="button" data-active.bind="activeRange === '30d'" aria-pressed.bind="activeRange === '30d'" click.trigger="applyQuickRangeAndFetch('30d')">
             30 days
           </button>
-          <button type="button" data-active.bind="activeRange === '90d'" click.trigger="applyQuickRangeAndFetch('90d')">
+          <button type="button" data-active.bind="activeRange === '90d'" aria-pressed.bind="activeRange === '90d'" click.trigger="applyQuickRangeAndFetch('90d')">
             90 days
           </button>
         </div>
@@ -61,7 +61,7 @@
         </div>
         <div class="input-shell">
           <label for="analytics-to">To</label>
-          <input id="analytics-to" class="input-field" type="date" value.bind="toDate" />
+          <input id="analytics-to" class="input-field" type="date" value.bind="toDate" min.bind="fromDate || null" />
         </div>
         <label class="button-row pb-2">
           <input type="checkbox" checked.bind="includeBots" />
@@ -73,7 +73,11 @@
         </div>
       </form>
 
-      <div class="notice notice--error" role="alert" if.bind="error">${error}</div>
+      <p class="field-help" role="status" if.bind="isLoading">Loading analytics…</p>
+      <div class="notice notice--error" role="alert" if.bind="error">
+        <span>${error}</span>
+        <button class="btn-secondary" type="button" click.trigger="fetchStats()" disabled.bind="isLoading">Retry</button>
+      </div>
     </section>
 
     <section class="metric-grid" aria-label="Analytics totals" aria-busy.bind="isLoading">
@@ -112,11 +116,11 @@
         <div class="panel-header">
           <div>
             <h2 class="panel-title">Clicks over time</h2>
-            <p class="panel-copy">Bot traffic is ${includeBots ? 'included' : 'excluded'}.</p>
+            <p class="panel-copy">Bot traffic is ${range?.include_bots ? 'included' : 'excluded'}.</p>
           </div>
         </div>
         <div class="chart-shell">
-          <canvas ref="chartCanvas" aria-label="Click trend chart"></canvas>
+          <canvas ref="chartCanvas" role="img" aria-label="Click trend chart. ${stats?.total ?? 0} clicks in the selected range."></canvas>
         </div>
       </div>
 

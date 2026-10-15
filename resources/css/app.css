@@ -299,6 +299,8 @@ button:disabled {
 
 .page-stack {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
   gap: 20px;
   animation: page-in 220ms ease both;
 }
@@ -343,6 +345,7 @@ button:disabled {
 }
 
 .panel {
+  min-width: 0;
   border-radius: 14px;
   padding: 22px;
 }
@@ -959,6 +962,8 @@ button.tag-pill {
 
 .segmented-control {
   display: inline-flex;
+  flex-wrap: wrap;
+  max-width: 100%;
   gap: 3px;
   border: 1px solid var(--line);
   border-radius: 9px;
@@ -1023,14 +1028,22 @@ button.tag-pill {
 .drawer {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  width: 100%;
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+}
+
+.drawer[open] {
   display: flex;
 }
 
-.drawer-overlay {
-  position: absolute;
-  inset: 0;
-  border: 0;
+.drawer::backdrop {
   background: rgba(23, 24, 26, 0.52);
 }
 
@@ -1040,6 +1053,7 @@ button.tag-pill {
   height: 100%;
   margin-left: auto;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 26px;
   background: var(--surface);
   box-shadow: -18px 0 40px rgba(20, 22, 26, 0.12);
@@ -1052,6 +1066,48 @@ button.tag-pill {
   gap: 16px;
   padding-bottom: 18px;
   border-bottom: 1px solid var(--line);
+}
+
+.drawer-header > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.drawer-fields {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.drawer-actions {
+  display: flex;
+  gap: 9px;
+  position: sticky;
+  bottom: -1px;
+  padding: 14px 0;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+}
+
+.tag-create-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 46px auto;
+  gap: 8px;
+}
+
+.bulk-controls {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.breakdown-row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .drawer-title {
@@ -1197,12 +1253,8 @@ button.tag-pill {
 
   .link-list-header,
   .link-item {
-    grid-template-columns: 24px minmax(210px, 1.4fr) minmax(150px, 1fr) 68px 76px 118px;
+    grid-template-columns: 24px minmax(0, 1.4fr) minmax(0, 1fr) 48px 68px 120px;
     gap: 10px;
-  }
-
-  .link-actions .btn-chip:first-child {
-    display: none;
   }
 }
 
@@ -1290,7 +1342,7 @@ button.tag-pill {
 
   .analytics-grid,
   .settings-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -1347,6 +1399,16 @@ button.tag-pill {
 }
 
 @media (max-width: 700px) {
+  .segmented-control {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .segmented-control button {
+    padding-inline: 5px;
+  }
+
   .utility-bar .btn-secondary,
   .utility-bar .btn-primary:not(:only-child) {
     display: none;

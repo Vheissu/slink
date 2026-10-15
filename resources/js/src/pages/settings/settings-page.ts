@@ -1,5 +1,6 @@
 import { ApiService, AuditLogDto } from '../../services/api';
 import { AuthService } from '../../services/auth';
+import { LatestRequest } from '../../utils/latest-request';
 
 export class SettingsPage {
   static inject = [AuthService, ApiService];
@@ -10,18 +11,31 @@ export class SettingsPage {
   isLoadingAudit = false;
   hasToken = false;
   showToken = false;
+  tokenError = '';
+  private auditRequest = new LatestRequest();
 
   constructor(private auth: AuthService, private api: ApiService) {}
 
-  async attached() {
+  attached() {
     this.tokenInput = this.auth.getToken() ?? '';
     this.hasToken = this.auth.hasToken();
-    await this.loadAuditLogs();
+    void this.loadAuditLogs();
+  }
+
+  detaching() {
+    this.auditRequest.cancel();
   }
 
   async saveToken() {
-    this.auth.setToken(this.tokenInput.trim() || null);
-    this.api.setToken(this.auth.getToken());
+    this.tokenError = '';
+    this.status = '';
+    try {
+      this.auth.setToken(this.tokenInput.trim() || null);
+    } catch {
+      this.tokenError = 'Your browser could not save the token. Check its storage settings and try again.';
+      return;
+    }
+    this.showToken = false;
     this.hasToken = this.auth.hasToken();
     this.status = this.hasToken ? 'Token saved in this browser.' : 'Token cleared.';
     this.dispatchTokenState(this.hasToken);
@@ -42,19 +56,22 @@ export class SettingsPage {
   }
 
   async loadAuditLogs() {
+    const isCurrent = this.auditRequest.start();
+    this.auditLogs = [];
     if (!this.auth.getToken()) {
-      this.auditLogs = [];
       this.auditError = '';
+      this.isLoadingAudit = false;
       return;
     }
     this.isLoadingAudit = true;
     this.auditError = '';
     try {
-      this.auditLogs = await this.api.listAuditLogs({ per_page: 5 });
+      const logs = await this.api.listAuditLogs({ per_page: 5 });
+      if (isCurrent()) this.auditLogs = logs;
     } catch (err) {
-      this.auditError = err instanceof Error ? err.message : 'Failed to load audit logs.';
+      if (isCurrent()) this.auditError = err instanceof Error ? err.message : 'Failed to load audit logs.';
     } finally {
-      this.isLoadingAudit = false;
+      if (isCurrent()) this.isLoadingAudit = false;
     }
   }
 

@@ -1,7 +1,11 @@
 import QRCode from 'qrcode';
-import { ApiService, LinkDto, TagDto } from '../../services/api';
+import { ApiService, BulkAction, LinkDto, LinkPageDto, TagDto, UpdateLinkPayload } from '../../services/api';
 import { AuthService } from '../../services/auth';
 import { UiActionsService, UiAction } from '../../services/ui-actions';
+import { LatestRequest } from '../../utils/latest-request';
+import { copyText, shortUrl } from '../../utils/clipboard';
+import { buildBulkPayload, downloadCsv, parseCsv } from '../../utils/csv';
+import { normalizeUrl, parseClickLimit } from '../../utils/link-input';
 
 type StatusFilter = 'all' | 'active' | 'inactive';
 
@@ -12,6 +16,17 @@ export class LinksPage {
   isLoading = true;
   hasToken = false;
   loadError = '';
+  tagError = '';
+  copyError = '';
+  isBulkUpdating = false;
+  isCreatingTag = false;
+  detailsDialog?: HTMLDialogElement;
+  detailsCloseButton?: HTMLButtonElement;
+  searchInput?: HTMLInputElement;
+  private detailsTrigger?: HTMLElement;
+  private linksRequest = new LatestRequest();
+  private tagsRequest = new LatestRequest();
+  private detached = false;
   createError = '';
   createdLink: LinkDto | null = null;
 
@@ -41,7 +56,6 @@ export class LinksPage {
   csvInput?: HTMLInputElement;
 
   copiedSlug: string | null = null;
-  copiedOriginal: string | null = null;
   private copyTimeout?: number;
 
   selectedIds: string[] = [];
@@ -90,61 +104,72 @@ export class LinksPage {
     return `${this.pageFrom}-${this.pageTo} of ${this.total} links`;
   }
 
-  async attached() {
+  binding() {
     this.hasToken = this.auth.hasToken();
+  }
+
+  attached() {
+    this.detached = false;
     this.unsubscribe = this.actions.onAction((action) => this.handleAction(action));
-    document.addEventListener('keydown', this.handleKeydown);
-
     const pending = this.actions.consume();
-    if (pending) {
-      this.handleAction(pending);
-    }
-
+    if (pending) this.handleAction(pending);
     if (!this.hasToken) {
       this.isLoading = false;
       return;
     }
-
-    this.isLoading = true;
-    this.loadError = '';
-    try {
-      const [page, tags] = await Promise.all([this.api.listLinksPage(), this.api.listTags()]);
-      this.applyPage(page);
-      this.tags = tags;
-    } catch (err) {
-      this.loadError = err instanceof Error ? err.message : 'Failed to load links.';
-    } finally {
-      this.isLoading = false;
-    }
+    void this.loadLinks(1);
+    void this.loadTags();
   }
 
   detaching() {
+    this.detached = true;
+    this.linksRequest.cancel();
+    this.tagsRequest.cancel();
     this.unsubscribe?.();
-    document.removeEventListener('keydown', this.handleKeydown);
-    document.body.classList.remove('drawer-open');
-    if (this.copyTimeout) {
-      window.clearTimeout(this.copyTimeout);
+    this.closeDetails();
+    if (this.copyTimeout) window.clearTimeout(this.copyTimeout);
+  }
+
+  async loadTags() {
+    const isCurrent = this.tagsRequest.start();
+    this.tagError = '';
+    try {
+      const tags = await this.api.listTags();
+      if (isCurrent()) this.tags = tags;
+    } catch (error) {
+      if (isCurrent()) this.tagError = error instanceof Error ? error.message : 'Could not load tags.';
     }
   }
 
   async loadLinks(page = this.page) {
+    const isCurrent = this.linksRequest.start();
     this.isLoading = true;
     this.loadError = '';
+    const params = {
+      search: this.searchQuery.trim() || undefined,
+      status: this.statusFilter,
+      tag: this.selectedTag || undefined,
+      from: this.dateFrom || undefined,
+      to: this.dateTo || undefined,
+      per_page: this.perPage,
+    };
     try {
-      const response = await this.api.listLinksPage({
-        search: this.searchQuery.trim() || undefined,
-        status: this.statusFilter,
-        tag: this.selectedTag || undefined,
-        from: this.dateFrom || undefined,
-        to: this.dateTo || undefined,
-        page,
-      });
+      if (this.dateFrom && this.dateTo && this.dateFrom > this.dateTo) {
+        throw new Error('The end date must be on or after the start date.');
+      }
+      let response = await this.api.listLinksPage({ ...params, page });
+      if (!isCurrent()) return;
+      // Deleting the final item on a page should take the user to the last remaining page.
+      if (response.current_page > response.last_page) {
+        response = await this.api.listLinksPage({ ...params, page: response.last_page });
+      }
+      if (!isCurrent()) return;
       this.applyPage(response);
       this.selectedIds = [];
     } catch (err) {
-      this.loadError = err instanceof Error ? err.message : 'Failed to load links.';
+      if (isCurrent()) this.loadError = err instanceof Error ? err.message : 'Failed to load links.';
     } finally {
-      this.isLoading = false;
+      if (isCurrent()) this.isLoading = false;
     }
   }
 
@@ -162,32 +187,24 @@ export class LinksPage {
     await this.loadLinks(1);
   }
 
-  setStatusFilter(status: StatusFilter) {
-    this.statusFilter = status;
-  }
-
   async createLink() {
+    if (this.isSaving) return;
     this.isSaving = true;
     this.createError = '';
     this.createdLink = null;
     try {
-      const originalUrl = this.normalizeUrl(this.newUrl);
+      const originalUrl = normalizeUrl(this.newUrl);
       const created = await this.api.createLink({
         original_url: originalUrl,
         title: this.newTitle || null,
         password: this.newPassword || null,
       });
+      if (this.detached) return;
       this.createdLink = created;
-      this.total += 1;
-      this.lastPage = Math.max(1, Math.ceil(this.total / this.perPage));
-      if (this.page === 1) {
-        this.links = [created, ...this.links].slice(0, this.perPage);
-        this.pageFrom = 1;
-        this.pageTo = this.links.length;
-      }
       this.newUrl = '';
       this.newTitle = '';
       this.newPassword = '';
+      await this.loadLinks();
     } catch (err) {
       this.createError = err instanceof Error ? err.message : 'Failed to create link.';
     } finally {
@@ -195,12 +212,7 @@ export class LinksPage {
     }
   }
 
-  shortUrl(slug?: string | null) {
-    if (!slug) {
-      return '';
-    }
-    return `${window.location.origin}/${slug}`;
-  }
+  shortUrl = shortUrl;
 
   healthLabel(link: LinkDto) {
     const status = link.health_status ?? 'unknown';
@@ -225,39 +237,15 @@ export class LinksPage {
   }
 
   async copyLink(slug?: string | null) {
-    if (!slug) {
-      return;
-    }
-    const url = this.shortUrl(slug);
-    await this.copyText(url);
-    this.copiedSlug = slug;
-    this.copiedOriginal = null;
-    this.resetCopyState();
-  }
-
-  async copyOriginal(url?: string | null) {
-    if (!url) {
-      return;
-    }
-    await this.copyText(url);
-    this.copiedOriginal = url;
-    this.copiedSlug = null;
-    this.resetCopyState();
-  }
-
-  private async copyText(text: string) {
+    if (!slug) return;
+    this.copyError = '';
     try {
-      await navigator.clipboard.writeText(text);
-    } catch (err) {
-      const textarea = document.createElement('textarea');
-      textarea.value = text;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.focus();
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
+      await copyText(this.shortUrl(slug));
+      if (this.detached) return;
+      this.copiedSlug = slug;
+      this.resetCopyState();
+    } catch (error) {
+      this.copyError = error instanceof Error ? error.message : 'Could not copy the link.';
     }
   }
 
@@ -267,7 +255,6 @@ export class LinksPage {
     }
     this.copyTimeout = window.setTimeout(() => {
       this.copiedSlug = null;
-      this.copiedOriginal = null;
     }, 2000);
   }
 
@@ -288,10 +275,12 @@ export class LinksPage {
   }
 
   triggerCsvImport() {
+    if (this.isImporting) return;
     this.csvInput?.click();
   }
 
   async handleCsvChange(event: Event) {
+    if (this.isImporting) return;
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) {
@@ -304,8 +293,8 @@ export class LinksPage {
 
     try {
       const text = await file.text();
-      const rows = this.parseCsv(text);
-      const { payloads, skipped } = this.buildBulkPayload(rows);
+      const rows = parseCsv(text);
+      const { payloads, skipped } = buildBulkPayload(rows);
 
       if (!payloads.length) {
         this.importError = 'No valid rows found in the CSV.';
@@ -314,14 +303,9 @@ export class LinksPage {
 
       const response = await this.api.bulkCreateLinks(payloads);
       const created = response.data ?? [];
-      this.total += created.length;
-      this.lastPage = Math.max(1, Math.ceil(this.total / this.perPage));
-      if (this.page === 1) {
-        this.links = [...created, ...this.links].slice(0, this.perPage);
-        this.pageFrom = this.links.length ? 1 : null;
-        this.pageTo = this.links.length || null;
-      }
-      this.importStatus = `Imported ${created.length} links${skipped ? `, skipped ${skipped}` : ''}.`;
+      if (this.detached) return;
+      await this.loadLinks();
+      this.importStatus = `Imported ${created.length} ${created.length === 1 ? 'link' : 'links'}${skipped ? `, skipped ${skipped}` : ''}.`;
     } catch (err) {
       this.importError = err instanceof Error ? err.message : 'Failed to import CSV.';
     } finally {
@@ -330,7 +314,8 @@ export class LinksPage {
     }
   }
 
-  async bulkAction(action: 'activate' | 'deactivate' | 'delete' | 'tag' | 'untag') {
+  async bulkAction(action: BulkAction) {
+    if (this.isBulkUpdating || this.isLoading) return;
     this.bulkActionError = '';
     this.bulkActionStatus = '';
 
@@ -348,13 +333,18 @@ export class LinksPage {
       return;
     }
 
+    this.isBulkUpdating = true;
     try {
       const payload = { action, ids, tag_id: this.bulkTagId || undefined };
       const response = await this.api.bulkActionLinks(payload);
-      this.bulkActionStatus = `${response.affected ?? ids.length} links updated.`;
+      if (this.detached) return;
+      const count = response.affected;
+      this.bulkActionStatus = `${count} ${count === 1 ? 'link' : 'links'} ${action === 'delete' ? 'deleted' : 'updated'}.`;
       await this.loadLinks();
     } catch (err) {
       this.bulkActionError = err instanceof Error ? err.message : 'Bulk action failed.';
+    } finally {
+      this.isBulkUpdating = false;
     }
   }
 
@@ -373,21 +363,14 @@ export class LinksPage {
       link.is_active ? 'active' : 'inactive',
       link.clicks_count?.toString() ?? '0',
     ]);
-    const csv = [header, ...rows]
-      .map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(','))
-      .join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = 'slink-links.csv';
-    anchor.click();
-    URL.revokeObjectURL(url);
+    downloadCsv('slink-links.csv', [header, ...rows]);
   }
 
-  openDetails(link: LinkDto) {
+  openDetails(link: LinkDto, trigger?: HTMLElement) {
+    this.detailsTrigger = trigger;
     this.activeLink = link;
     this.isDrawerOpen = true;
+    this.detailsDialog?.showModal();
     document.body.classList.add('drawer-open');
     this.editTitle = link.title ?? '';
     this.editOriginalUrl = link.original_url ?? '';
@@ -401,16 +384,30 @@ export class LinksPage {
     this.qrDataUrl = '';
     this.detailStatus = '';
     this.detailError = '';
+    this.copyError = '';
     if (link.slug) {
       this.generateQr(link.slug);
     }
   }
 
   closeDetails() {
+    const linkId = this.activeLink?.id;
+    this.detailsDialog?.close();
     this.isDrawerOpen = false;
     document.body.classList.remove('drawer-open');
     this.activeLink = null;
     this.qrDataUrl = '';
+    if (!this.detached && linkId) {
+      const trigger = this.detailsTrigger?.isConnected
+        ? this.detailsTrigger
+        : document.querySelector<HTMLElement>(`[data-link-details="${CSS.escape(linkId)}"]`);
+      (trigger ?? this.searchInput)?.focus();
+    }
+    this.detailsTrigger = undefined;
+  }
+
+  onDialogClick(event: MouseEvent) {
+    if (event.target === this.detailsDialog) this.closeDetails();
   }
 
   toggleTag(tagId: string) {
@@ -423,44 +420,49 @@ export class LinksPage {
 
   async createTag() {
     const name = this.newTagName.trim();
-    if (!name) {
+    if (!name || this.isCreatingTag) {
       return;
     }
+    this.isCreatingTag = true;
+    this.detailError = '';
+    const linkId = this.activeLink?.id;
     try {
       const created = await this.api.createTag({ name, color: this.newTagColor || null });
+      if (this.detached) return;
       this.tags = [created, ...this.tags];
-      this.newTagName = '';
-      this.newTagColor = '#c24718';
+      if (this.activeLink?.id === linkId) {
+        this.editTagIds = [...this.editTagIds, created.id];
+        this.newTagName = '';
+        this.newTagColor = '#c24718';
+      }
     } catch (err) {
-      this.detailError = err instanceof Error ? err.message : 'Failed to create tag.';
+      if (this.activeLink?.id === linkId) this.detailError = err instanceof Error ? err.message : 'Failed to create tag.';
+    } finally {
+      this.isCreatingTag = false;
     }
   }
 
   async saveDetails() {
-    if (!this.activeLink) {
+    if (!this.activeLink || this.isSavingDetails || this.isCreatingTag) {
       return;
     }
 
+    const link = this.activeLink;
+    // Disabling the form must not leave keyboard focus on the inert background.
+    this.detailsCloseButton?.focus();
     this.isSavingDetails = true;
     this.detailError = '';
     this.detailStatus = '';
     try {
-      const originalUrl = this.normalizeUrl(this.editOriginalUrl);
-      const payload: {
-        title?: string | null;
-        original_url?: string | null;
-        notes?: string | null;
-        expires_at?: string | null;
-        max_clicks?: number | null;
-        is_active?: boolean;
-        tags?: string[];
-        password?: string | null;
-      } = {
+      const originalUrl = normalizeUrl(this.editOriginalUrl);
+      const payload: UpdateLinkPayload = {
         title: this.editTitle || null,
         original_url: originalUrl,
         notes: this.editNotes || null,
-        expires_at: this.editExpiresAt || null,
-        max_clicks: this.editMaxClicks ? Number(this.editMaxClicks) : null,
+        expires_at: this.editExpiresAt === this.formatDateInput(link.expires_at ?? '')
+          ? link.expires_at ?? null
+          : this.editExpiresAt || null,
+        max_clicks: parseClickLimit(String(this.editMaxClicks ?? '')),
         is_active: this.editIsActive,
         tags: this.editTagIds,
       };
@@ -471,14 +473,17 @@ export class LinksPage {
         payload.password = this.editPassword;
       }
 
-      const updated = await this.api.updateLink(this.activeLink.id, payload);
-      this.links = this.links.map((link) => (link.id === updated.id ? updated : link));
-      this.activeLink = updated;
-      this.editPassword = '';
-      this.clearPassword = false;
-      this.detailStatus = 'Changes saved.';
+      const updated = await this.api.updateLink(link.id, payload);
+      if (this.detached) return;
+      if (this.activeLink?.id === link.id) {
+        this.activeLink = { ...link, ...updated };
+        this.editPassword = '';
+        this.clearPassword = false;
+        this.detailStatus = 'Changes saved.';
+      }
+      await this.loadLinks();
     } catch (err) {
-      this.detailError = err instanceof Error ? err.message : 'Failed to save changes.';
+      if (this.activeLink?.id === link.id) this.detailError = err instanceof Error ? err.message : 'Failed to save changes.';
     } finally {
       this.isSavingDetails = false;
     }
@@ -486,12 +491,13 @@ export class LinksPage {
 
   async generateQr(slug: string) {
     try {
-      this.qrDataUrl = await QRCode.toDataURL(this.shortUrl(slug), {
+      const qrDataUrl = await QRCode.toDataURL(this.shortUrl(slug), {
         width: 200,
         margin: 1,
       });
-    } catch (err) {
-      this.qrDataUrl = '';
+      if (this.activeLink?.slug === slug) this.qrDataUrl = qrDataUrl;
+    } catch {
+      if (this.activeLink?.slug === slug) this.qrDataUrl = '';
     }
   }
 
@@ -527,47 +533,13 @@ export class LinksPage {
     return link.is_active ? 'status-pill' : 'status-pill status-pill--neutral';
   }
 
-  private applyPage(response: {
-    data: LinkDto[];
-    current_page: number;
-    last_page: number;
-    from: number | null;
-    to: number | null;
-    total: number;
-  }) {
+  private applyPage(response: LinkPageDto) {
     this.links = response.data;
     this.page = response.current_page;
     this.lastPage = response.last_page;
     this.pageFrom = response.from;
     this.pageTo = response.to;
     this.total = response.total;
-  }
-
-  private handleKeydown = (event: KeyboardEvent) => {
-    if (event.key === 'Escape' && this.isDrawerOpen) {
-      this.closeDetails();
-    }
-  };
-
-  private normalizeUrl(value: string) {
-    const trimmed = value.trim();
-    if (!trimmed) {
-      throw new Error('Destination URL is required.');
-    }
-
-    const candidate = /^[a-z][a-z\d+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
-    let url: URL;
-    try {
-      url = new URL(candidate);
-    } catch {
-      throw new Error('Enter a valid destination URL.');
-    }
-
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-      throw new Error('Only HTTP and HTTPS destinations are supported.');
-    }
-
-    return url.toString();
   }
 
   private focusCreate() {
@@ -584,118 +556,5 @@ export class LinksPage {
       return '';
     }
     return date.toISOString().slice(0, 10);
-  }
-
-  private parseCsv(text: string) {
-    const rows: string[][] = [];
-    let current: string[] = [];
-    let value = '';
-    let inQuotes = false;
-
-    const pushValue = () => {
-      current.push(value);
-      value = '';
-    };
-
-    for (let i = 0; i < text.length; i += 1) {
-      const char = text[i];
-      if (char === '"') {
-        const next = text[i + 1];
-        if (inQuotes && next === '"') {
-          value += '"';
-          i += 1;
-        } else {
-          inQuotes = !inQuotes;
-        }
-        continue;
-      }
-
-      if (char === ',' && !inQuotes) {
-        pushValue();
-        continue;
-      }
-
-      if ((char === '\n' || char === '\r') && !inQuotes) {
-        if (char === '\r' && text[i + 1] === '\n') {
-          i += 1;
-        }
-        pushValue();
-        if (current.some((field) => field.trim() !== '')) {
-          rows.push(current.map((field) => field.trim()));
-        }
-        current = [];
-        continue;
-      }
-
-      value += char;
-    }
-
-    if (value.length || current.length) {
-      pushValue();
-      if (current.some((field) => field.trim() !== '')) {
-        rows.push(current.map((field) => field.trim()));
-      }
-    }
-
-    return rows;
-  }
-
-  private buildBulkPayload(rows: string[][]) {
-    if (!rows.length) {
-      return { payloads: [], skipped: 0 };
-    }
-
-    const header = rows[0].map((col) => col.toLowerCase());
-    const headerMap: Record<string, string> = {
-      url: 'original_url',
-      original_url: 'original_url',
-      link: 'original_url',
-      title: 'title',
-      expires_at: 'expires_at',
-      max_clicks: 'max_clicks',
-    };
-
-    const hasHeader = header.some((col) => headerMap[col]);
-    const startIndex = hasHeader ? 1 : 0;
-    const payloads: Array<{
-      original_url: string;
-      title?: string | null;
-      expires_at?: string | null;
-      max_clicks?: number | null;
-    }> = [];
-    let skipped = 0;
-
-    for (let i = startIndex; i < rows.length; i += 1) {
-      const row = rows[i];
-      const payload: Record<string, string> = {};
-
-      if (hasHeader) {
-        header.forEach((col, index) => {
-          const key = headerMap[col];
-          if (key && row[index]) {
-            payload[key] = row[index];
-          }
-        });
-      } else {
-        payload.original_url = row[0] ?? '';
-        if (row[1]) {
-          payload.title = row[1];
-        }
-      }
-
-      if (!payload.original_url) {
-        skipped += 1;
-        continue;
-      }
-
-      payloads.push({
-        original_url: payload.original_url,
-        title: payload.title || null,
-        expires_at: payload.expires_at || null,
-        max_clicks: payload.max_clicks ? Number(payload.max_clicks) : null,
-      });
-    }
-
-    return { payloads, skipped };
   }
 }

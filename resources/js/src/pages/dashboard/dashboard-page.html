@@ -22,7 +22,7 @@
           <div class="skeleton skeleton-value"></div>
         </div>
       </template>
-      <template if.bind="!isLoading">
+      <template if.bind="!isLoading && !error">
         <article class="metric-card" repeat.for="metric of metrics">
           <p class="metric-label">${metric.label}</p>
           <p class="metric-value">${metric.value}</p>
@@ -40,7 +40,11 @@
         <a class="btn-secondary" href="/links" load="../links">View all links</a>
       </div>
 
-      <div class="notice notice--error" role="alert" if.bind="error">${error}</div>
+      <div class="notice notice--error" role="alert" if.bind="error">
+        <span>${error}</span>
+        <button class="btn-secondary" type="button" click.trigger="loadDashboard()" disabled.bind="isLoading">Retry</button>
+      </div>
+      <p class="notice notice--error" role="alert" if.bind="copyError">${copyError}</p>
 
       <div class="recent-list" if.bind="isLoading" aria-hidden="true">
         <div class="skeleton-row" repeat.for="item of [1, 2, 3, 4]"></div>

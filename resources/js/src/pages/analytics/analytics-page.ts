@@ -2,9 +2,11 @@ import { Chart, registerables } from 'chart.js';
 import { ApiService, AnalyticsResponseDto, AnalyticsSeriesPoint, LinkStatsDto } from '../../services/api';
 import { AuthService } from '../../services/auth';
 
-Chart.register(...registerables);
+import { LatestRequest } from '../../utils/latest-request';
+import { downloadCsv } from '../../utils/csv';
+import { quickDateRange, QuickRange } from '../../utils/date-range';
 
-type QuickRange = '24h' | '7d' | '30d' | '90d';
+Chart.register(...registerables);
 
 export class AnalyticsPage {
   static inject = [ApiService, AuthService];
@@ -22,53 +24,64 @@ export class AnalyticsPage {
   activeRange: QuickRange | null = '30d';
   chartCanvas?: HTMLCanvasElement;
   chart?: Chart;
+  private statsRequest = new LatestRequest();
 
   constructor(private api: ApiService, private auth: AuthService) {}
 
-  async attached() {
+  binding() {
     this.hasToken = this.auth.hasToken();
+  }
+
+  attached() {
     if (!this.hasToken) {
       this.isLoading = false;
       return;
     }
     this.applyQuickRange('30d');
-    await this.fetchStats();
+    void this.fetchStats();
   }
 
   detaching() {
-    this.chart?.destroy();
+    this.statsRequest.cancel();
+    this.destroyChart();
   }
 
   async fetchStats() {
+    const isCurrent = this.statsRequest.start();
     this.isLoading = true;
     this.error = '';
     try {
+      if (this.fromDate && this.toDate && this.fromDate > this.toDate) {
+        throw new Error('The end date must be on or after the start date.');
+      }
       const response = await this.api.getAnalytics({
         query: this.queryInput.trim() || null,
         from: this.fromDate || null,
         to: this.toDate || null,
         include_bots: this.includeBots,
       });
+      if (!isCurrent()) return;
       this.stats = response.stats;
       this.scope = response.scope;
       this.range = response.range;
       this.series = response.series ?? [];
       this.renderChart();
     } catch (err) {
+      if (!isCurrent()) return;
       this.error = err instanceof Error ? err.message : 'Failed to load analytics';
       this.stats = null;
       this.scope = null;
       this.range = null;
       this.series = [];
-      this.chart?.destroy();
+      this.destroyChart();
     } finally {
-      this.isLoading = false;
+      if (isCurrent()) this.isLoading = false;
     }
   }
 
   clearQuery() {
     this.queryInput = '';
-    this.fetchStats();
+    return this.fetchStats();
   }
 
   async applyQuickRangeAndFetch(range: QuickRange) {
@@ -78,27 +91,9 @@ export class AnalyticsPage {
 
   applyQuickRange(range: QuickRange) {
     this.activeRange = range;
-    const now = new Date();
-    const end = new Date(now);
-    let start = new Date(now);
-
-    switch (range) {
-      case '24h':
-        start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-        break;
-      case '7d':
-        start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        break;
-      case '90d':
-        start = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-        break;
-      default:
-        start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        break;
-    }
-
-    this.fromDate = this.formatDateInput(start);
-    this.toDate = this.formatDateInput(end);
+    const dates = quickDateRange(range);
+    this.fromDate = dates.from;
+    this.toDate = dates.to;
   }
 
   async applyCustomRange() {
@@ -107,7 +102,7 @@ export class AnalyticsPage {
   }
 
   exportCsv() {
-    if (!this.stats || !this.range) {
+    if (this.isLoading || !this.stats || !this.range) {
       return;
     }
 
@@ -141,26 +136,17 @@ export class AnalyticsPage {
     rows.push(['referrer', 'total']);
     this.stats.by_referrer.forEach((item) => rows.push([item.referer, String(item.total)]));
 
-    const csv = rows
-      .map((row) => row.map((value) => `"${String(value ?? '').replace(/"/g, '""')}"`).join(','))
-      .join('\n');
-
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = 'slink-analytics.csv';
-    anchor.click();
-    URL.revokeObjectURL(url);
+    downloadCsv('slink-analytics.csv', rows);
   }
 
   exportPdf() {
-    if (!this.stats || !this.range) {
+    if (this.isLoading || !this.stats || !this.range) {
       return;
     }
 
     const win = window.open('', '_blank', 'width=900,height=700');
     if (!win) {
+      this.error = 'Your browser blocked the print window. Allow pop-ups and try again.';
       return;
     }
 
@@ -282,8 +268,8 @@ export class AnalyticsPage {
     });
   }
 
-  private formatDateInput(value: Date) {
-    const date = new Date(value.getTime() - value.getTimezoneOffset() * 60000);
-    return date.toISOString().slice(0, 10);
+  private destroyChart() {
+    this.chart?.destroy();
+    this.chart = undefined;
   }
 }

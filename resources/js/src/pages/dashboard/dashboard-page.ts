@@ -1,5 +1,7 @@
 import { ApiService, LinkDto, UserStatsDto } from '../../services/api';
 import { AuthService } from '../../services/auth';
+import { copyText, shortUrl } from '../../utils/clipboard';
+import { LatestRequest } from '../../utils/latest-request';
 
 export class DashboardPage {
   static inject = [ApiService, AuthService];
@@ -10,6 +12,9 @@ export class DashboardPage {
   hasToken = false;
   copiedSlug: string | null = null;
   private copyTimeout?: number;
+  copyError = '';
+  private dataRequest = new LatestRequest();
+  private detached = false;
 
   constructor(private api: ApiService, private auth: AuthService) {}
 
@@ -30,42 +35,33 @@ export class DashboardPage {
     return this.links.slice(0, 4);
   }
 
-  shortUrl(slug?: string | null) {
-    if (!slug) {
-      return '';
-    }
-    return `${window.location.origin}/${slug}`;
-  }
+  shortUrl = shortUrl;
 
   async copyLink(slug?: string | null) {
-    if (!slug) {
-      return;
-    }
-    const url = this.shortUrl(slug);
+    if (!slug) return;
+    this.copyError = '';
     try {
-      await navigator.clipboard.writeText(url);
-    } catch (err) {
-      const textarea = document.createElement('textarea');
-      textarea.value = url;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.focus();
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
+      await copyText(shortUrl(slug));
+      if (this.detached) return;
+      this.copiedSlug = slug;
+      if (this.copyTimeout) window.clearTimeout(this.copyTimeout);
+      this.copyTimeout = window.setTimeout(() => { this.copiedSlug = null; }, 2000);
+    } catch (error) {
+      this.copyError = error instanceof Error ? error.message : 'Could not copy the link.';
     }
-
-    this.copiedSlug = slug;
-    if (this.copyTimeout) {
-      window.clearTimeout(this.copyTimeout);
-    }
-    this.copyTimeout = window.setTimeout(() => {
-      this.copiedSlug = null;
-    }, 2000);
   }
 
-  async attached() {
+  binding() {
+    this.hasToken = this.auth.hasToken();
+  }
+
+  attached() {
+    this.detached = false;
+    void this.loadDashboard();
+  }
+
+  async loadDashboard() {
+    const isCurrent = this.dataRequest.start();
     this.hasToken = this.auth.hasToken();
     if (!this.hasToken) {
       this.isLoading = false;
@@ -76,19 +72,22 @@ export class DashboardPage {
     this.error = '';
     try {
       const [links, stats] = await Promise.all([
-        this.api.listLinks(),
+        this.api.listLinks({ per_page: 4 }),
         this.api.getUserStats(),
       ]);
+      if (!isCurrent()) return;
       this.links = links;
       this.stats = stats;
     } catch (err) {
-      this.error = err instanceof Error ? err.message : 'Failed to load dashboard data';
+      if (isCurrent()) this.error = err instanceof Error ? err.message : 'Failed to load dashboard data';
     } finally {
-      this.isLoading = false;
+      if (isCurrent()) this.isLoading = false;
     }
   }
 
   detaching() {
+    this.detached = true;
+    this.dataRequest.cancel();
     if (this.copyTimeout) {
       window.clearTimeout(this.copyTimeout);
     }

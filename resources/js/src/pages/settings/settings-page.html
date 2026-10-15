@@ -11,10 +11,10 @@
       <div class="section-header">
         <div>
           <h2 class="section-title">API token</h2>
-          <p class="section-copy">The frontend sends this bearer token with requests to /api/v1.</p>
+          <p class="section-copy">Save a token to access your links and analytics.</p>
         </div>
-        <span class="status-pill" if.bind="hasToken">Connected</span>
-        <span class="status-pill status-pill--neutral" if.bind="!hasToken">Not connected</span>
+        <span class="status-pill" if.bind="hasToken">Token saved</span>
+        <span class="status-pill status-pill--neutral" if.bind="!hasToken">No token</span>
       </div>
 
       <form class="mt-5" submit.trigger:prevent="saveToken()">
@@ -31,7 +31,7 @@
               value.bind="tokenInput"
               aria-describedby="token-storage-note"
             />
-            <button class="btn-secondary" type="button" click.trigger="toggleTokenVisibility()">
+            <button class="btn-secondary" type="button" click.trigger="toggleTokenVisibility()" aria-pressed.bind="showToken" aria-controls="api-token">
               ${showToken ? 'Hide' : 'Show'}
             </button>
           </div>
@@ -44,6 +44,7 @@
           <button class="btn-primary" type="submit">Save token</button>
           <button class="btn-secondary" type="button" if.bind="hasToken" click.trigger="clearToken()">Clear token</button>
         </div>
+        <p class="form-error mt-3" role="alert" if.bind="tokenError">${tokenError}</p>
         <p class="form-success mt-3" aria-live="polite" if.bind="status">${status}</p>
       </form>
     </section>

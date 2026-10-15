@@ -47,6 +47,8 @@ php artisan test
 If your change affects the frontend, run:
 
 ```bash
+npm run typecheck
+npm test
 npm run build
 ```
 
