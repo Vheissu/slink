@@ -6,9 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Models\Link;
 use App\Models\Tag;
 use App\Support\AuditLogger;
+use App\Support\ClickStatistics;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -31,9 +31,9 @@ class LinkController extends Controller
                     return;
                 }
 
-                $builder->where('slug', 'ilike', '%'.$search.'%')
-                    ->orWhere('original_url', 'ilike', '%'.$search.'%')
-                    ->orWhere('title', 'ilike', '%'.$search.'%');
+                $builder->whereLike('slug', '%'.$search.'%')
+                    ->orWhereLike('original_url', '%'.$search.'%')
+                    ->orWhereLike('title', '%'.$search.'%');
             });
         }
 
@@ -47,8 +47,12 @@ class LinkController extends Controller
         $tag = trim((string) $request->query('tag', ''));
         if ($tag !== '') {
             $query->whereHas('tags', function ($builder) use ($tag) {
-                $builder->where('id', $tag)
-                    ->orWhere('name', 'ilike', '%'.$tag.'%');
+                $builder->where(function ($tags) use ($tag) {
+                    $tags->whereLike('tags.name', '%'.$tag.'%');
+                    if (Str::isUuid($tag)) {
+                        $tags->orWhere('tags.id', $tag);
+                    }
+                });
             });
         }
 
@@ -207,36 +211,7 @@ class LinkController extends Controller
             ->where('user_id', $request->user()->id)
             ->findOrFail($id);
 
-        $base = $link->clicks();
-
-        $response = [
-            'total' => $base->count(),
-            'by_country' => $base->select('country', DB::raw('count(*) as total'))
-                ->whereNotNull('country')
-                ->groupBy('country')
-                ->orderByDesc('total')
-                ->limit(12)
-                ->get(),
-            'by_device' => $base->select('device_type', DB::raw('count(*) as total'))
-                ->whereNotNull('device_type')
-                ->groupBy('device_type')
-                ->orderByDesc('total')
-                ->get(),
-            'by_browser' => $base->select('browser', DB::raw('count(*) as total'))
-                ->whereNotNull('browser')
-                ->groupBy('browser')
-                ->orderByDesc('total')
-                ->limit(8)
-                ->get(),
-            'by_referrer' => $base->select('referer', DB::raw('count(*) as total'))
-                ->whereNotNull('referer')
-                ->groupBy('referer')
-                ->orderByDesc('total')
-                ->limit(10)
-                ->get(),
-        ];
-
-        return response()->json($response);
+        return response()->json(ClickStatistics::summarize($link->clicks()->getQuery()));
     }
 
     public function bulk(Request $request)

@@ -2,16 +2,17 @@
 
 namespace Tests\Feature;
 
-use App\Models\ApiToken;
 use App\Models\Link;
+use App\Models\Tag;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Str;
+use Tests\Support\CreatesApiFixtures;
 use Tests\TestCase;
 
 class LinkApiTest extends TestCase
 {
+    use CreatesApiFixtures;
     use RefreshDatabase;
 
     public function test_links_require_an_api_token(): void
@@ -132,28 +133,29 @@ class LinkApiTest extends TestCase
             ->assertJsonMissing(['id' => $otherLink->id]);
     }
 
-    private function tokenFor(User $user, array $abilities, mixed $expiresAt = null): string
+    public function test_search_matches_case_insensitively_and_keeps_ownership_scope(): void
     {
-        $plainTextToken = Str::random(40);
+        $user = User::factory()->create();
+        $link = $this->linkFor($user, ['title' => 'Creator Tools']);
+        $this->linkFor($user, ['title' => 'Other']);
+        $this->linkFor(User::factory()->create(), ['title' => 'Creator Tools']);
 
-        ApiToken::create([
-            'user_id' => $user->id,
-            'name' => 'Test token',
-            'token' => hash('sha256', $plainTextToken),
-            'abilities' => $abilities,
-            'expires_at' => $expiresAt,
-        ]);
-
-        return $plainTextToken;
+        $this->withToken($this->tokenFor($user))->getJson('/api/v1/links?search=creator')
+            ->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.id', $link->id);
     }
 
-    private function linkFor(User $user, array $attributes = []): Link
+    public function test_tag_filter_accepts_names_and_ids_without_ambiguous_columns(): void
     {
-        return Link::create(array_merge([
-            'user_id' => $user->id,
-            'original_url' => 'https://example.com/'.Str::random(8),
-            'slug' => Str::random(8),
-            'title' => null,
-        ], $attributes));
+        $user = User::factory()->create();
+        $link = $this->linkFor($user);
+        $tag = Tag::create(['user_id' => $user->id, 'name' => 'Newsletters', 'color' => '#ffffff']);
+        $link->tags()->attach($tag);
+        $this->linkFor($user);
+
+        $this->withToken($this->tokenFor($user));
+        foreach (['news', $tag->id] as $filter) {
+            $this->getJson('/api/v1/links?'.http_build_query(['tag' => $filter]))
+                ->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.id', $link->id);
+        }
     }
 }

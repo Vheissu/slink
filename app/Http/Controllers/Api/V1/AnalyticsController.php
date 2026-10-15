@@ -5,14 +5,24 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Click;
 use App\Models\Link;
+use App\Support\AnalyticsQuery;
+use App\Support\ClickStatistics;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class AnalyticsController extends Controller
 {
     public function index(Request $request)
     {
+        $request->validate([
+            'query' => ['nullable', 'string'],
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date'],
+        ]);
+
         $query = trim((string) $request->query('query', ''));
         $userId = $request->user()->id;
         $includeBots = filter_var($request->query('include_bots', false), FILTER_VALIDATE_BOOL);
@@ -24,6 +34,10 @@ class AnalyticsController extends Controller
         $from = $from->startOfDay();
         $to = $to->endOfDay();
 
+        if ($to->lessThan($from)) {
+            throw ValidationException::withMessages(['to' => 'The end date must be on or after the start date.']);
+        }
+
         $granularity = $request->query('granularity');
         if (! in_array($granularity, ['day', 'hour'], true)) {
             $granularity = $from->diffInDays($to) <= 2 ? 'hour' : 'day';
@@ -31,29 +45,18 @@ class AnalyticsController extends Controller
 
         $linksQuery = Link::query()->where('user_id', $userId);
         if ($query !== '') {
-            $filters = $this->parseQueryFilters($query);
+            $filters = AnalyticsQuery::parse($query);
             $linksQuery->where(function ($builder) use ($filters) {
-                foreach ($filters['url'] as $value) {
-                    $builder->where('original_url', 'ilike', '%'.$value.'%');
+                foreach (['url' => 'original_url', 'slug' => 'slug', 'title' => 'title'] as $key => $column) {
+                    foreach ($filters[$key] as $value) {
+                        $builder->whereLike($column, '%'.$value.'%');
+                    }
                 }
-                foreach ($filters['slug'] as $value) {
-                    $builder->where('slug', 'ilike', '%'.$value.'%');
-                }
-                foreach ($filters['title'] as $value) {
-                    $builder->where('title', 'ilike', '%'.$value.'%');
-                }
-                foreach ($filters['contains'] as $value) {
+                foreach (array_merge($filters['contains'], $filters['free']) as $value) {
                     $builder->where(function ($inner) use ($value) {
-                        $inner->where('slug', 'ilike', '%'.$value.'%')
-                            ->orWhere('original_url', 'ilike', '%'.$value.'%')
-                            ->orWhere('title', 'ilike', '%'.$value.'%');
-                    });
-                }
-                foreach ($filters['free'] as $value) {
-                    $builder->where(function ($inner) use ($value) {
-                        $inner->where('slug', 'ilike', '%'.$value.'%')
-                            ->orWhere('original_url', 'ilike', '%'.$value.'%')
-                            ->orWhere('title', 'ilike', '%'.$value.'%');
+                        $inner->whereLike('slug', '%'.$value.'%')
+                            ->orWhereLike('original_url', '%'.$value.'%')
+                            ->orWhereLike('title', '%'.$value.'%');
                     });
                 }
             });
@@ -62,9 +65,7 @@ class AnalyticsController extends Controller
         $matchedLinks = (clone $linksQuery)->count();
 
         $base = Click::query()
-            ->whereHas('link', function ($builder) use ($linksQuery) {
-                $builder->whereIn('id', $linksQuery->select('id'));
-            })
+            ->whereIn('link_id', (clone $linksQuery)->select('id'))
             ->whereBetween('created_at', [$from, $to]);
 
         if (! $includeBots) {
@@ -86,41 +87,16 @@ class AnalyticsController extends Controller
                 'include_bots' => $includeBots,
             ],
             'series' => $series,
-            'stats' => [
-                'total' => (clone $base)->count(),
-                'by_country' => (clone $base)->select('country', DB::raw('count(*) as total'))
-                    ->whereNotNull('country')
-                    ->groupBy('country')
-                    ->orderByDesc('total')
-                    ->limit(12)
-                    ->get(),
-                'by_device' => (clone $base)->select('device_type', DB::raw('count(*) as total'))
-                    ->whereNotNull('device_type')
-                    ->groupBy('device_type')
-                    ->orderByDesc('total')
-                    ->get(),
-                'by_browser' => (clone $base)->select('browser', DB::raw('count(*) as total'))
-                    ->whereNotNull('browser')
-                    ->groupBy('browser')
-                    ->orderByDesc('total')
-                    ->limit(8)
-                    ->get(),
-                'by_referrer' => (clone $base)->select('referer', DB::raw('count(*) as total'))
-                    ->whereNotNull('referer')
-                    ->groupBy('referer')
-                    ->orderByDesc('total')
-                    ->limit(10)
-                    ->get(),
-            ],
+            'stats' => ClickStatistics::summarize($base),
         ];
 
         return response()->json($response);
     }
 
-    private function buildSeries($linksQuery, Carbon $from, Carbon $to, string $granularity, bool $includeBots): array
+    private function buildSeries(Builder $linksQuery, Carbon $from, Carbon $to, string $granularity, bool $includeBots): array
     {
         $aggregate = DB::table('click_aggregates')
-            ->whereIn('link_id', $linksQuery->select('id'))
+            ->whereIn('link_id', (clone $linksQuery)->select('id'))
             ->whereBetween('date', [$from->toDateString(), $to->toDateString()]);
 
         if (! $includeBots) {
@@ -178,68 +154,5 @@ class AnalyticsController extends Controller
         }
 
         return $series;
-    }
-
-    private function parseQueryFilters(string $query): array
-    {
-        $filters = [
-            'url' => [],
-            'slug' => [],
-            'title' => [],
-            'contains' => [],
-            'free' => [],
-        ];
-
-        if (filter_var($query, FILTER_VALIDATE_URL)) {
-            $filters['url'][] = $query;
-
-            return $filters;
-        }
-
-        preg_match_all('/"([^"]*)"|\'([^\']*)\'|(\\S+)/', $query, $matches);
-        $tokens = [];
-        foreach ($matches[0] as $index => $token) {
-            $token = $matches[1][$index] !== '' ? $matches[1][$index] : $token;
-            $token = $matches[2][$index] !== '' ? $matches[2][$index] : $token;
-            $token = trim($token);
-            if ($token !== '') {
-                $tokens[] = $token;
-            }
-        }
-
-        foreach ($tokens as $token) {
-            $parts = explode(':', $token, 2);
-            if (count($parts) === 2) {
-                $key = strtolower($parts[0]);
-                $value = trim($parts[1]);
-                if ($value === '') {
-                    continue;
-                }
-                switch ($key) {
-                    case 'url':
-                    case 'link':
-                    case 'original_url':
-                        $filters['url'][] = $value;
-
-                        continue 2;
-                    case 'slug':
-                        $filters['slug'][] = $value;
-
-                        continue 2;
-                    case 'title':
-                        $filters['title'][] = $value;
-
-                        continue 2;
-                    case 'contains':
-                        $filters['contains'][] = $value;
-
-                        continue 2;
-                }
-            }
-
-            $filters['free'][] = $token;
-        }
-
-        return $filters;
     }
 }

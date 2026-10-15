@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\ApiToken;
+use App\Models\Click;
 use App\Support\AuditLogger;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -22,7 +23,7 @@ class UserController extends Controller
 
         return response()->json([
             'links' => $user->links()->count(),
-            'clicks' => $user->links()->withCount('clicks')->get()->sum('clicks_count'),
+            'clicks' => Click::query()->whereIn('link_id', $user->links()->select('id'))->count(),
             'tags' => $user->tags()->count(),
         ]);
     }
